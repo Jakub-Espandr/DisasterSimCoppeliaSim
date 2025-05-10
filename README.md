@@ -1,4 +1,11 @@
-# Disaster Simulation with Drone Navigation (CoppeliaSim Project)
+<p align="center">
+  <a href="https://i.imghippo.com/files/snk6965sI.png">
+    <img src="https://i.imghippo.com/files/snk6965sI.png" alt="Disaster Sim Logo" width="250"/>
+  </a>
+</p>
+
+<h1 align="center">Disaster Simulation with Drone Navigation</h1>
+<p align="center"><em>(CoppeliaSim Project)</em></p>
 
 ## Overview
 
