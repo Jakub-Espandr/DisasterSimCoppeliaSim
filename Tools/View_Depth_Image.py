@@ -28,6 +28,10 @@ import tkinter as tk
 from tkinter import ttk  # For advanced widgets like Combobox
 from PIL import Image, ImageTk
 import math  # For grid layout calculations
+
+# Add parent directory to path so we can import Utils module
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from Utils.log_utils import get_logger, DEBUG_L1, DEBUG_L2, DEBUG_L3
 
 # Initialize logger

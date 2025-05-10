@@ -1,98 +1,122 @@
-## [Unreleased]
-
-## [V.1.2.0] - 2023-05-17
+## [V.1.3.0] - HyperDrive Navigator - 2025-05-10
 
 ### Added
-- Added command-line argument support for verbose mode (`--verbose`)
-- Added semi-transparent popup notification system for configuration changes
-- Added temporary visual feedback when settings are changed
-- Added automatic window resizing when switching to Status tab
-- Added comprehensive verbose logging for important system events
-- Added centralized logging system with file output support
-- Added command-line options for log level control and file logging
-- Added log directory configuration option
-- Added detailed debug level guidelines in log_utils.py to standardize logging across modules
-
-### Improved
-- Improved configuration UI with instant-apply settings that update immediately
-- Improved Status tab with larger radar display for better victim visualization
-- Improved verbose output to focus on important system events while reducing noise
-- Improved scene manager error reporting and status updates
-- Improved error handling with centralized logging facility
-- Improved debugging capability with optional file-based logging
-- Improved shutdown sequence with proper logger cleanup
-- Improved lock acquisition/release logging in lock_utils.py
+- Added UI keyboard control capabilities:
+  - Direct keyboard input through the application window
+  - Control status indicator in Status tab
+  - Proper focus handling for seamless control switching
+- Added RC joystick controller documentation and support
+- Added comprehensive application icon support:
+  - Platform-specific icon loading for macOS and Windows
+  - Error handling for missing icon files
+  - Resolution-appropriate icon rendering
+- Added tools for showing datasets, enhancing data visualization and analysis capabilities:
+  - Preview pane for captured depth images
+  - Basic preprocessing tools
+  - Quick-access export functionality
+- Enhanced Help tab with expanded information and improved organization.
 
 ### Changed
-- Changed default verbose setting to false for cleaner standard output
-- Changed console output to use structured logging format
-- Changed print statements to use centralized logger throughout codebase
-- Changed debug levels in terrain_elements.py for consistency with logging guidelines
+- Completely redesigned the user interface for a more modern and intuitive experience.
+- Updated the victim direction indicator to provide clearer visual feedback on the victim's position relative to the drone.
+- Improved performance of UI updates during keyboard control.
+- Updated status messages to reflect the new control capabilities.
+- Enhanced layout and readability of the Help tab content.
+- Refined color scheme for better visibility in various lighting conditions.
 
 ### Fixed
-- Fixed verbose flag behavior to properly enable/disable based on command-line argument
-- Fixed configuration UI showing notifications when field loses focus but value hasn't changed
-- Fixed "invalid command name" error during shutdown when UI callbacks are triggered after window closure
-- Fixed incomplete event unsubscription that could cause memory leaks and errors
-- Fixed inconsistent debug logging levels in Utils folder for better log clarity
+- Resolved issues with control status not updating correctly.
+- Fixed potential UI freezes during rapid input events.
+- Improved error handling for joystick input integration.
+- Addressed memory leaks in long-running simulation sessions.
+- Corrected inconsistencies in status reporting during dataset collection.
 
-### Removed
-- Removed redundant "Apply All Changes" button from configuration UI
-- Removed unnecessary print statements replaced with appropriate logger calls
+### Performance
+- Optimized event handling for smoother keyboard and joystick interactions, reducing input lag.
+- Implemented complex logging mechanisms to track user interactions and system performance, aiding in debugging and analysis.
+- Enhanced memory management during UI updates, resulting in a decreased memory footprint and improved responsiveness.
+- Streamlined background processes to minimize CPU usage during idle times, ensuring a more efficient application performance.
+- Improved rendering performance for dynamic UI elements, leading to a smoother user experience during rapid input events.
+- Reduced startup time by code optimization and resource loading improvements.
 
-## [V.1.1.2] - 2023-07-25
+## [V.1.1.1] - Galactic Explorer - 2025-05-09
 
 ### Added
-- Added enhanced configuration UI with grouped settings
-- Added tooltips for all configuration options
-- Added "Reset to Defaults" button in config UI
-- Added missing configurations:
-  - `dataset_capture_frequency` - Controls data capture frequency
-  - `victim_detection_threshold` - Sets threshold for victim detection alarms
-  - `clear_zone_center` - Center point for clear zone
-  - `drone_height` - Initial drone height
+- Added custom dataset directory selection functionality:
+  - New interface in Dataset tab to select output locations 
+  - Real-time directory path updates in the UI
+  - Integration with existing dataset capture system
 
 ### Changed
-- Reorganized configuration system to use categorical groups
-- Improved validation and error handling for configuration inputs
-- Enhanced visual feedback for configuration changes using status bar
-- Improved command-line config menu with grouped categories
+- Completely redesigned modern user interface:
+  - Enhanced color scheme with a modern dark theme and accent colors
+  - Redesigned buttons and controls with consistent styling
+  - Added visual feedback for user interactions
+  - Enhanced scrolling behavior in configuration panels
+  - Modernized progress indicators with color-coded status
+  - Canvas-based radar displays victim direction with new indication mechanism
+- Enhanced Config tab with scrollable form:
+  - All config FIELDS rendered dynamically with consistent styling
+  - Live updates using config/updated events
+  - Form validation with visual feedback
+  - Save/load configuration functionality
+- Improved scene creation feedback:
+  - Real-time progress bar during scene creation
+  - Displays category (e.g. Rocks, Trees) and item counts
+  - Cancel button allows scene generation to be interrupted safely
+  - Fixed fallen tree removal and random respawn logic
 
 ### Fixed
-- Fixed coordinate tuple parsing for clear_zone_center
-- Fixed type validation for configuration values
-- Improved error messages for invalid configuration inputs
-- Fixed teleportation error related to getObjectPropertiesInfo method
-- Fixed batch_size not being updated when changed through configuration UI
-- Fixed object inclusion settings not being respected (include_rocks, include_standing_trees, etc.)
+- Fixed potential filesystem errors
+- Improved thread safety in UI update operations with _ui_active flag
+- Enhanced error handling for background thread operations
+- Corrected potential thread deadlocks in dataset collection process
+- Improved shutdown sequence to prevent UI freezes when closing the application
 
-## [V.1.1.1] - 2023-07-24
+### Performance
+- Optimized UI performance across all tabs:
+  - Added event-driven UI updates instead of polling-based approach
+  - Suspended performance monitoring when switching tabs to reduce CPU usage
+- Decreased memory footprint through better resource management
+- Improved responsiveness when switching between tabs
+
+## [V.1.1.0] - Cosmic Navigator - 2025-05-08
 
 ### Added
-- Added new CameraManager singleton class to handle vision sensors through the event system
-- Added capture_rgb function in Utils/capture_utils.py to properly capture and flip RGB images
-- Added automatic sensor removal for invalid vision sensors
+- Added RC transmitter (joystick) control support:
+  - Implemented `rc_controller.py` using `pygame` in a subprocess (macOS-safe)
+  - Mapped joystick axes to drone movement and rotation (pitch, roll, yaw, throttle)
+  - Applied deadzone filtering and sensitivity scaling (especially yaw and throttle)
+- Added GUI control mode selection at startup:
+  - Tkinter popup lets user choose between Keyboard and RC Controller
+  - Seamlessly integrated into simulation launch sequence
+- Implemented multiprocessing-safe communication between RC controller and simulation loop
+- Integrated joystick input into event system using `keyboard/move` and `keyboard/rotate` events
 
 ### Changed
-- Refactored vision sensor handling to use event-driven approach
-- Enhanced SimConnection.shutdown method to accept camera_manager parameter
-- Modified shutdown sequence to properly clean up all manager instances
-- Improved parameter handling using named parameters for clarity
+- Refactored `main.py` to support dynamic control mode selection and conditional process handling
+- Updated `drone_keyboard_mapper.py`:
+  - Removed use of `reset_controls()` in favor of event-based motion stopping
+  - Corrected yaw direction to match standard RC control convention
+- Updated `drone_movement_transformer.py` to ensure proper `/target` updates even when input is zero
+- Enhanced `keyboard_manager.py` with timeout-based key release detection for better macOS compatibility
 
 ### Fixed
-- Fixed 'int' object has no attribute 'shutdown' error in SimConnection.shutdown
-- Fixed incorrect parameter order in SimConnection.shutdown method
-- Fixed "object does not exist" error in vision sensor handling
-- Fixed image orientation by applying np.flipud() to image data instead of camera handle
+- Ensured `DroneControlManager` is always initialized, regardless of input method
+- Fixed issue where drone would continue moving after releasing keys or stick due to missing stop events
 
-## [V.1.1.0] - 2023-07-24
+### Internal
+- All related commits tagged as part of `v1.1.0: adds RC controller support and control mode selection`
+
+
+## [V.1.0.1] - Stellar Fix - 2025-05-08
 
 ### Added
-- Added View_Depth_Image.py tool for viewing and manipulating depth image datasets
-- Added validator.py tool for validating image orientation with preview capability
-- Added flip.py batch processing tool for flipping entire datasets of images
+- Added Dynamiclly moving objects such as birds and falling trees:
+  - Option to select number of dynamic objects
+- Enhanced simulation performance for dynamic objects
 
-## [V.1.0.0] - 2025-05-05
+## [V.1.0.0] - Stellar Fix - 2025-05-05
 
 ### Added
 - Added Status tab with comprehensive victim detection visualization:
@@ -139,7 +163,7 @@
   - scene_object_creators.py
 - Eliminated progressive scene creation in favor of more efficient event-based approach
 
-## [V.0.10.0] - 2025-05-03
+## [V.0.10.0] - Quantum Leap - 2025-05-03
 
 ### Added
 - Event-driven depth dataset collection via `simulation/frame` events
@@ -182,7 +206,7 @@
 - Removed global creator reference in scene_progressive.py in favor of module attribute
 - Eliminated the need to pass sim and event_manager instances throughout the codebase
 
-## [V.0.9.0] - 2025-05-02
+## [V.0.9.0] - Celestial Odyssey - 2025-05-02
 
 ### Added
 - New `teleport_quadcopter_to_edge()` function in scene_progressive.py that doesn't trigger physics optimization
@@ -213,3 +237,7 @@
 ### Removed
 - Deleted scene_manager.py facade module as it was redundant
 - Removed global _active_creator variable in scene_progressive.py in favor of event-based communication
+
+## [V.0.6.0] - Galactic Frontier - 2025-04-28
+
+## [V.0.1.0] - Nebula - 2025-04-27
