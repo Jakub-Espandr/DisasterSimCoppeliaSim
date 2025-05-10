@@ -34,8 +34,16 @@ The system supports manual control, dataset collection for AI training, and dyna
 3. Install required Python packages:
 
 ```bash
+# Install all dependencies at once using the requirements.txt file
+pip install -r requirements.txt
+```
+
+Alternatively, you can install core dependencies individually:
+
+```bash
 pip install coppeliasim-zmqremoteapi-client numpy
 pip install pygame
+pip install psutil
 ```
 
 4. Start CoppeliaSim with a quadrotor scene containing:
@@ -52,6 +60,28 @@ python main.py
 6. Use the keyboard to interact:
    - Use `W/A/S/D` + `Q/E` keys to move and rotate the drone.
    - Press `Enter` to open the menu.
+---
+
+## Dependencies
+
+The `requirements.txt` file includes the following dependencies:
+
+### Core Dependencies
+- **numpy**: For numerical operations and array handling
+- **psutil**: For system monitoring and performance metrics
+- **coppeliasim-zmqremoteapi-client**: For CoppeliaSim simulation interface
+
+### Optional Dependencies
+- **opencv-python**: For image processing capabilities
+- **pillow**: For additional image handling
+- **matplotlib**: For data visualization
+- **scipy**: For scientific computing functions
+
+### Development Tools
+- **pytest**: For running automated tests
+- **flake8**: For code linting
+- **black**: For code formatting
+
 ---
 
 ## Controls
