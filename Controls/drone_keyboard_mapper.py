@@ -64,7 +64,7 @@ def register_drone_keyboard_mapper(config):
                 yaw += sign
 
         move_step = config.get('move_step', 0.2)
-        rotate_step = config.get('rotate_step_deg', 10.0)
+        rotate_step = config.get('rotate_step_deg', 15.0)
         import math
 
         if pressed_keys:

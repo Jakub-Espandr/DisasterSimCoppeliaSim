@@ -6,6 +6,9 @@ import argparse
 import multiprocessing
 import tkinter as tk
 import os
+import sys
+import signal
+import threading
 from Managers.depth_dataset_collector    import DepthDatasetCollector
 from Utils.scene_utils                   import setup_scene_event_handlers
 from Utils.config_utils                  import get_default_config
@@ -120,12 +123,31 @@ def main():
         rc_proc.start()
         logger.info("Main", "RC controller process started")
 
+        # Immediately send all RC-related settings to the controller process
+        for key in ['rc_sensitivity', 'rc_deadzone', 'rc_yaw_sensitivity', 'rc_mappings']:
+            if key in config:
+                value = config[key]
+                parent_conn.send({key: value})
+                logger.debug_at_level(DEBUG_L2, "Main", f"Applied saved {key} setting to RC controller")
+        
         # Subscribe to config updates to forward to RC controller
         def on_config_updated(key):
             if key == 'rc_sensitivity':
                 sensitivity = config.get('rc_sensitivity', 5.0)
                 parent_conn.send({'rc_sensitivity': sensitivity})
                 logger.debug_at_level(DEBUG_L2, "Main", f"Sent RC sensitivity update: {sensitivity}")
+            elif key == 'rc_deadzone':
+                deadzone = config.get('rc_deadzone', 0.1)
+                parent_conn.send({'rc_deadzone': deadzone})
+                logger.debug_at_level(DEBUG_L2, "Main", f"Sent RC deadzone update: {deadzone}")
+            elif key == 'rc_yaw_sensitivity':
+                yaw_sensitivity = config.get('rc_yaw_sensitivity', 0.15)
+                parent_conn.send({'rc_yaw_sensitivity': yaw_sensitivity})
+                logger.debug_at_level(DEBUG_L2, "Main", f"Sent RC yaw sensitivity update: {yaw_sensitivity}")
+            elif key == 'rc_mappings':
+                mappings = config.get('rc_mappings', {})
+                parent_conn.send({'rc_mappings': mappings})
+                logger.debug_at_level(DEBUG_L2, "Main", f"Sent RC mappings update: {mappings}")
         EM.subscribe('config/updated', on_config_updated)
     else:
         register_drone_keyboard_mapper(config)
@@ -213,16 +235,60 @@ def main():
     
     if use_rc:
         logger.debug_at_level(DEBUG_L1, "Main", "Terminating RC controller process")
-        rc_proc.terminate()
-        rc_proc.join()
+        try:
+            rc_proc.terminate()
+            # Add timeout for process join, then force kill if needed
+            rc_proc.join(timeout=2)
+            if rc_proc.is_alive():
+                logger.warning("Main", "RC process did not terminate gracefully, forcing exit")
+                rc_proc.kill()
+                rc_proc.join(timeout=1)
+        except Exception as e:
+            logger.error("Main", f"Error terminating RC controller: {e}")
 
-    SC.shutdown(depth_collector, floating_view_rgb)
-    logger.info("Main", "Simulation disconnected and resources released")
+    # Ensure clean disconnection from simulation
+    try:
+        # Validate depth collector before shutdown
+        if not depth_collector or not hasattr(depth_collector, 'shutdown'):
+            logger.warning("Main", "Invalid depth collector, setting to None for shutdown")
+            depth_collector = None
+            
+        # Check floating view validity
+        if not floating_view_rgb or not isinstance(floating_view_rgb, int):
+            logger.warning("Main", "Invalid floating view handle, setting to None for shutdown")
+            floating_view_rgb = None
+            
+        SC.shutdown(depth_collector, floating_view_rgb)
+        logger.info("Main", "Simulation disconnected and resources released")
+    except Exception as e:
+        logger.error("Main", f"Error during simulation shutdown: {e}")
+    
+    # Add force exit after a timeout to ensure application terminates
+    def force_exit():
+        logger.warning("Main", "Forcing application exit due to timeout")
+        os._exit(0)
+    
+    # Start force exit timer in separate thread to ensure it runs
+    threading.Timer(3.0, force_exit).start()
     
     # Properly shut down the logger
     logger.info("Main", "Application shutdown complete")
     logger.shutdown()
 
 if __name__ == '__main__':
+    # Set up signal handlers for graceful shutdown
+    def signal_handler(sig, frame):
+        logger = get_logger()
+        logger.info("Main", f"Received signal {sig}, shutting down")
+        EM = EventManager.get_instance()
+        EM.publish('simulation/shutdown', None)
+        # Give time for shutdown procedures to begin then force exit
+        time.sleep(1)
+        os._exit(0)
+        
+    # Register signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
     multiprocessing.set_start_method('spawn')  # Required on macOS
     main()

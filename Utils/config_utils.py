@@ -27,9 +27,13 @@ FIELDS = [
     {"key": "rc_sensitivity",          "desc": "RC controller sensitivity", "type": float},
 ]
 
+import os
+import json
+from Utils.log_utils import get_logger
+
 # ─── Get Default Config ───
 def get_default_config():
-    return {
+    config = {
         "area_size": 10.0,
         "num_trees": 5,
         "fraction_standing": 0.85,
@@ -44,7 +48,7 @@ def get_default_config():
         "clear_zone_radius": 0.5,
         "verbose": True,
         "move_step": 0.2,
-        "rotate_step_deg": 10.0,
+        "rotate_step_deg": 15.0,
         "drone_spawn_margin": 1.0,
         "optimized_creation": True,
         "include_rocks": True,
@@ -55,3 +59,57 @@ def get_default_config():
         "batch_size": 10,
         "rc_sensitivity": 10.0,
     }
+    
+    # Load saved RC controller settings and mappings if available
+    config = load_rc_settings(config)
+    
+    return config
+
+def load_rc_settings(config):
+    """
+    Load saved RC controller settings and mappings from Config directory and update the config
+    
+    Args:
+        config: The config dictionary to update
+        
+    Returns:
+        Updated config dictionary with loaded RC settings
+    """
+    logger = get_logger()
+    
+    try:
+        # Get the Config directory path
+        config_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Config")
+        
+        # Load RC sensitivity and deadzone settings
+        rc_settings_path = os.path.join(config_dir, "rc_settings.json")
+        if os.path.exists(rc_settings_path):
+            with open(rc_settings_path, "r") as f:
+                rc_settings = json.load(f)
+            
+            # Update config with loaded settings
+            if "sensitivity" in rc_settings:
+                config["rc_sensitivity"] = rc_settings["sensitivity"]
+            if "deadzone" in rc_settings:
+                config["rc_deadzone"] = rc_settings["deadzone"]
+            if "yaw_sensitivity" in rc_settings:
+                config["rc_yaw_sensitivity"] = rc_settings["yaw_sensitivity"]
+                
+            logger.info("Config", f"Loaded RC settings: sensitivity={config.get('rc_sensitivity', 'N/A')}, "
+                      f"deadzone={config.get('rc_deadzone', 'N/A')}, "
+                      f"yaw_sensitivity={config.get('rc_yaw_sensitivity', 'N/A')}")
+        
+        # Load RC mappings
+        rc_mapping_path = os.path.join(config_dir, "rc_mapping.json")
+        if os.path.exists(rc_mapping_path):
+            with open(rc_mapping_path, "r") as f:
+                rc_mappings = json.load(f)
+            
+            # Update config with loaded mappings
+            config["rc_mappings"] = rc_mappings
+            logger.info("Config", f"Loaded RC mappings: {rc_mappings}")
+    
+    except Exception as e:
+        logger.error("Config", f"Error loading RC settings: {e}")
+    
+    return config

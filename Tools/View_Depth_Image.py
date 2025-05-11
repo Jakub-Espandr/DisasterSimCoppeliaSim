@@ -31,6 +31,7 @@ from PIL import Image, ImageTk
 import math  # For grid layout calculations
 import threading  # For running batch operations without freezing the UI
 import time  # For progress updates
+import tempfile  # Added import for tempfile module
 
 # Import matplotlib for 3D visualization
 import matplotlib
@@ -54,6 +55,9 @@ logger = get_logger()
 # Default path to the dataset
 DATASET_DIR = "data/depth_dataset"
 
+# Path to the assets directory
+ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+
 class ImageViewer:
     """
     Main application for viewing and manipulating depth images from .npz files.
@@ -68,6 +72,9 @@ class ImageViewer:
         logger.info("ImageViewer", "Initializing depth image viewer application")
         self.root = root
         self.root.title("Depth Image Viewer v.0.2.0")
+        
+        # Set app icon for Windows and macOS
+        self.set_app_icon()
         
         # Initialize logger
         self.logger = get_logger()
@@ -105,6 +112,57 @@ class ImageViewer:
         # Set minimum window size after a short delay to ensure window is rendered
         # self.root.after(500, self.set_current_size_as_minimum)
     
+    def set_app_icon(self):
+        """Set the application icon for Windows taskbar and macOS dock."""
+        try:
+            # Icon paths
+            icon_path = os.path.join(ASSETS_DIR, "tool_icon.png")
+            icon_path_ico = os.path.join(ASSETS_DIR, "tool_icon.ico")
+            
+            # Check if icon files exist
+            if not os.path.exists(ASSETS_DIR):
+                os.makedirs(ASSETS_DIR, exist_ok=True)
+                logger.warning("ImageViewer", f"Assets directory created: {ASSETS_DIR}")
+            
+            # Check if icon files exist and log availability
+            icon_png_exists = os.path.exists(icon_path)
+            icon_ico_exists = os.path.exists(icon_path_ico)
+            
+            logger.debug_at_level(DEBUG_L1, "ImageViewer", f"PNG icon exists: {icon_png_exists}, ICO icon exists: {icon_ico_exists}")
+            
+            # For Windows (uses .ico file)
+            if sys.platform.startswith('win') and icon_ico_exists:
+                self.root.iconbitmap(icon_path_ico)
+                logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Set Windows icon: {icon_path_ico}")
+            
+            # For macOS (uses .png or .icns file)
+            elif sys.platform == 'darwin' and icon_png_exists:
+                # Use PIL to open and convert the image for Tkinter
+                icon_image = Image.open(icon_path)
+                icon_tk = ImageTk.PhotoImage(icon_image)
+                self.root.iconphoto(True, icon_tk)
+                # Keep a reference to prevent garbage collection
+                self.icon_image = icon_tk
+                logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Set macOS icon: {icon_path}")
+            
+            # For Linux (uses .png file)
+            elif sys.platform.startswith('linux') and icon_png_exists:
+                icon_image = Image.open(icon_path)
+                icon_tk = ImageTk.PhotoImage(icon_image)
+                self.root.iconphoto(True, icon_tk)
+                # Keep a reference to prevent garbage collection
+                self.icon_image = icon_tk
+                logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Set Linux icon: {icon_path}")
+            
+            else:
+                logger.warning("ImageViewer", f"No suitable icon found for platform {sys.platform}")
+                if not icon_png_exists and not icon_ico_exists:
+                    logger.warning("ImageViewer", f"Icon files not found in {ASSETS_DIR}")
+        
+        except Exception as e:
+            logger.error("ImageViewer", f"Error setting application icon: {str(e)}")
+            # Continue without icon - this is not a critical error
+        
     def configure_app_style(self):
         """Configure the application style to match the main app."""
         # Light theme with black text
@@ -1309,14 +1367,47 @@ Tips
         logger.info("ImageViewer", f"Saving changes to: {current_filename}")
         
         try:
+            # Get absolute paths for temp and backup directories
+            temp_dir_abs = os.path.abspath(self.temp_dir)
+            backup_dir_abs = os.path.abspath(self.backup_dir)
+            
+            logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Temp directory path: {temp_dir_abs}")
+            logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Backup directory path: {backup_dir_abs}")
+            
+            # Make sure directories are writable
+            if not os.access(temp_dir_abs, os.W_OK):
+                logger.error("ImageViewer", f"Temp directory not writable: {temp_dir_abs}")
+                raise Exception(f"Temp directory not writable: {temp_dir_abs}")
+                
+            if not os.access(backup_dir_abs, os.W_OK):
+                logger.error("ImageViewer", f"Backup directory not writable: {backup_dir_abs}")
+                # This is not fatal - we can proceed without backups
+                logger.warning("ImageViewer", "Will proceed without creating backups")
+            
+            # Make sure temp and backup directories exist
+            try:
+                os.makedirs(temp_dir_abs, exist_ok=True)
+                logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Created/confirmed temp directory: {temp_dir_abs}")
+                if not os.path.exists(temp_dir_abs):
+                    logger.error("ImageViewer", f"Failed to create temp directory: {temp_dir_abs}")
+                
+                os.makedirs(backup_dir_abs, exist_ok=True)
+                logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Created/confirmed backup directory: {backup_dir_abs}")
+            except Exception as dir_err:
+                logger.error("ImageViewer", f"Error creating directories: {str(dir_err)}")
+                raise Exception(f"Failed to create necessary directories: {str(dir_err)}")
+            
             # Create a backup of the original file in the backup directory
             backup_filename = f"{current_filename}.backup.{int(time.time())}"
-            backup_file = os.path.join(self.backup_dir, backup_filename)
+            backup_file = os.path.join(backup_dir_abs, backup_filename)
             
             try:
-                import shutil
-                shutil.copy2(current_file, backup_file)
-                logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Created backup at {backup_file}")
+                if os.access(backup_dir_abs, os.W_OK):
+                    import shutil
+                    shutil.copy2(current_file, backup_file)
+                    logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Created backup at {backup_file}")
+                else:
+                    logger.warning("ImageViewer", f"Skipping backup - directory not writable")
             except Exception as e:
                 logger.warning("ImageViewer", f"Failed to create backup: {str(e)}")
             
@@ -1342,26 +1433,70 @@ Tips
             save_data = {key: self.current_batch[key] for key in self.current_batch.files}
             save_data['depths'] = self.flipped_images
             
-            # Create a temporary file with a unique name in the temp directory
-            temp_filename = f"{current_filename}.temp.{int(time.time())}"
-            temp_file = os.path.join(self.temp_dir, temp_filename)
+            # Create a unique temporary file name using Python's tempfile module
+            import tempfile
             
-            # Ensure the directory exists
-            os.makedirs(self.temp_dir, exist_ok=True)
+            # First approach: use the system temp directory with a unique filename
+            _, temp_file = tempfile.mkstemp(suffix=f'.{current_filename}.temp.npz')
+            
+            # Log the full paths being used
+            logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Current file: {current_file}")
+            logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Using temp file path: {temp_file}")
+            
+            # Verify the temp directory exists and is writable
+            temp_dir = os.path.dirname(temp_file)
+            if not os.path.exists(temp_dir):
+                logger.error("ImageViewer", f"Temp directory missing: {temp_dir}")
+                raise Exception(f"Temp directory doesn't exist: {temp_dir}")
+            
+            if not os.access(temp_dir, os.W_OK):
+                logger.error("ImageViewer", f"Temp directory not writable: {temp_dir}")
+                raise Exception(f"Temp directory not writable: {temp_dir}")
             
             logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Saving to temporary file: {temp_file}")
             
             # Save to the temporary file
-            np.savez_compressed(temp_file, **save_data)
+            try:
+                np.savez_compressed(temp_file, **save_data)
+                logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Saved temp file successfully: {temp_file}")
+                
+                # Immediately check if the file exists after saving
+                if os.path.exists(temp_file):
+                    logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Temp file exists after saving: {temp_file}")
+                    file_size = os.path.getsize(temp_file)
+                    logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Temp file size: {file_size} bytes")
+                else:
+                    logger.error("ImageViewer", f"Temp file does not exist immediately after saving: {temp_file}")
+                    raise Exception(f"Temp file disappeared immediately after saving")
+                
+            except Exception as save_err:
+                logger.error("ImageViewer", f"Error saving temp file: {str(save_err)}")
+                # Check if directory exists after error
+                logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Temp dir exists: {os.path.exists(temp_dir)}")
+                raise Exception(f"Failed to save temporary file: {str(save_err)}")
             
             # Verify the temporary file
             try:
+                # Check if file exists before loading
+                if not os.path.exists(temp_file):
+                    logger.error("ImageViewer", f"Temp file not found after saving: {temp_file}")
+                    raise FileNotFoundError(f"Temp file not found after saving: {temp_file}")
+                
                 test_load = np.load(temp_file)
                 # If we can load it without error, it's good
                 logger.debug_at_level(DEBUG_L1, "ImageViewer", "Verified temporary file")
             except Exception as e:
                 # If we can't load it, something went wrong
                 logger.error("ImageViewer", f"Temporary file verification failed: {str(e)}")
+                # Check file existence and permissions
+                if os.path.exists(temp_file):
+                    logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Temp file exists but failed to load")
+                    # Check file permissions
+                    is_readable = os.access(temp_file, os.R_OK)
+                    logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Temp file readable: {is_readable}")
+                else:
+                    logger.error("ImageViewer", f"Temp file doesn't exist after saving")
+                    
                 # Clean up the temp file if it exists
                 if os.path.exists(temp_file):
                     try:
@@ -1374,6 +1509,15 @@ Tips
             # If verification passed, move the temp file to the target location
             import shutil
             try:
+                # Check if the current file location is writable
+                current_file_dir = os.path.dirname(current_file)
+                is_dir_writable = os.access(current_file_dir, os.W_OK)
+                logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Target directory writable: {is_dir_writable}")
+                
+                if not is_dir_writable:
+                    logger.error("ImageViewer", f"Target directory not writable: {current_file_dir}")
+                    raise Exception(f"Cannot write to target directory: {current_file_dir}")
+                
                 # On some platforms (especially Windows), we might need to remove the target first
                 if os.path.exists(current_file):
                     os.remove(current_file)
@@ -2272,16 +2416,42 @@ Tips
         # Make sure the dataset directory exists
         os.makedirs(self.dataset_dir, exist_ok=True)
         
-        # Set up temp and backup directories within the dataset directory
-        self.temp_dir = os.path.join(self.dataset_dir, ".temp")
+        # Use system temp directory instead of custom directory for temporary files
+        import tempfile
+        self.temp_dir = tempfile.gettempdir()
+        
+        # Backup directory still in dataset directory
         self.backup_dir = os.path.join(self.dataset_dir, ".backup")
         
         # Create directories if they don't exist
-        os.makedirs(self.temp_dir, exist_ok=True)
-        os.makedirs(self.backup_dir, exist_ok=True)
-        
-        logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Initialized temp directory: {self.temp_dir}")
-        logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Initialized backup directory: {self.backup_dir}")
+        try:
+            # Temp dir should already exist since it's the system temp dir
+            if not os.path.exists(self.temp_dir):
+                logger.error("ImageViewer", f"System temp directory doesn't exist: {self.temp_dir}")
+            else:
+                # Check if the temp directory is writable
+                test_writable = os.access(self.temp_dir, os.W_OK)
+                logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Temp directory writable: {test_writable}")
+                if not test_writable:
+                    logger.error("ImageViewer", f"Temp directory not writable: {self.temp_dir}")
+            
+            # Create backup directory
+            os.makedirs(self.backup_dir, exist_ok=True)
+            
+            # Verify that the directories were created
+            if not os.path.exists(self.backup_dir):
+                logger.error("ImageViewer", f"Failed to create backup directory: {self.backup_dir}")
+            else:
+                # Check if the backup directory is writable
+                test_writable = os.access(self.backup_dir, os.W_OK)
+                logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Backup directory writable: {test_writable}")
+                if not test_writable:
+                    logger.error("ImageViewer", f"Backup directory not writable: {self.backup_dir}")
+                
+            logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Using system temp directory: {self.temp_dir}")
+            logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Initialized backup directory: {self.backup_dir}")
+        except Exception as e:
+            logger.error("ImageViewer", f"Error initializing temp/backup directories: {str(e)}")
 
     def _toggle_verbose_mode(self):
         """Toggle verbose logging mode on or off."""

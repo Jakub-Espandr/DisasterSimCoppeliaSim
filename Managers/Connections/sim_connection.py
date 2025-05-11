@@ -109,13 +109,21 @@ class SimConnection:
             try:
                 # We already have EM instance at the top level, reusing it here
                 
-                # Unsubscribe from events before shutdown to prevent callbacks during cleanup
-                EM.unsubscribe('simulation/frame', collector_to_shutdown._on_simulation_frame)
-                EM.unsubscribe('keyboard/move', collector_to_shutdown._on_move)
-                EM.unsubscribe('keyboard/rotate', collector_to_shutdown._on_rotate)
+                # Safely unsubscribe from events before shutdown - check if methods exist
+                if hasattr(collector_to_shutdown, '_on_simulation_frame') and callable(collector_to_shutdown._on_simulation_frame):
+                    EM.unsubscribe('simulation/frame', collector_to_shutdown._on_simulation_frame)
                 
-                # Then shut down gracefully
-                collector_to_shutdown.shutdown()
+                if hasattr(collector_to_shutdown, '_on_move') and callable(collector_to_shutdown._on_move):
+                    EM.unsubscribe('keyboard/move', collector_to_shutdown._on_move)
+                
+                if hasattr(collector_to_shutdown, '_on_rotate') and callable(collector_to_shutdown._on_rotate):
+                    EM.unsubscribe('keyboard/rotate', collector_to_shutdown._on_rotate)
+                
+                # Then shut down gracefully if shutdown method exists
+                if hasattr(collector_to_shutdown, 'shutdown') and callable(collector_to_shutdown.shutdown):
+                    collector_to_shutdown.shutdown()
+                else:
+                    self.logger.warning("Connection", "Depth collector has no shutdown method")
             except Exception as e:
                 self.logger.error("Connection", f"Error shutting down DepthDatasetCollector: {e}")
         else:

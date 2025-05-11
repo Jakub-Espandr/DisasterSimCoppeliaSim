@@ -7,9 +7,11 @@ from Utils.scene_utils import restart_disaster_area
 from Managers.scene_manager import (
     create_scene, clear_scene, cancel_scene_creation,
     SCENE_START_CREATION, SCENE_CREATION_PROGRESS, 
-    SCENE_CREATION_COMPLETED, SCENE_CREATION_CANCELED
+    SCENE_CREATION_COMPLETED, SCENE_CREATION_CANCELED,
+    SCENE_CLEARED
 )
 from Utils.log_utils import get_logger, DEBUG_L1, DEBUG_L2, DEBUG_L3, LOG_LEVEL_DEBUG, LOG_LEVEL_INFO, LOG_LEVEL_WARNING, LOG_LEVEL_ERROR, LOG_LEVEL_CRITICAL
+from Controls.rc_controller_settings import RCControllerSettings
 
 from Managers.Connections.sim_connection import SimConnection
 SC = SimConnection.get_instance()
@@ -73,8 +75,8 @@ class MenuSystem:
 
         # Build and style main window
         self.root = tk.Tk()
-        self.root.title("Disaster Simulation Control")
-        self.root.geometry("590x820")  # Increased width to ensure all tabs are visible
+        self.root.title("Disaster Simulation with Drone Navigation v1.3.1")
+        self.root.geometry("700x900")  # Increased width to ensure all tabs are visible
         self.root.configure(bg="#1a1a1a")  # Dark background
         
         # Initialize Tkinter variables after root window is created
@@ -117,7 +119,7 @@ class MenuSystem:
             
         # Make window resizable with minimum size
         self.root.resizable(True, True)
-        self.root.minsize(590, 820)  # Increased minimum width to ensure all tabs are visible
+        self.root.minsize(700, 900)  # Increased minimum width to ensure all tabs are visible
         
         # Add window shadow effect
         self.root.attributes('-alpha', 0.98)  # Slight transparency for modern look
@@ -297,7 +299,7 @@ class MenuSystem:
         
         # Get movement parameters from config
         move_step = self.config.get('move_step', 0.2)
-        rotate_step = self.config.get('rotate_step_deg', 10.0)
+        rotate_step = self.config.get('rotate_step_deg', 15.0)
         
         # Increase the movement speed for UI control by 6x
         # We'll also apply a small adjustment factor since we're updating more frequently
@@ -403,10 +405,25 @@ class MenuSystem:
                        padding=[20, 15],  # Increased padding for larger buttons
                        font=("Segoe UI", 12, "bold"),  # Larger font
                        borderwidth=1,
-                       relief="solid")
+                       relief="solid",
+                       anchor="center",
+                       justify="center")
         style.map("TButton",
                  background=[("active", hover_color)],
                  foreground=[("active", accent_color)],
+                 relief=[("pressed", "sunken")])
+        
+        # Configure Apply button style with light green color
+        style.configure("Apply.TButton",
+                       background="#4CAF50",  # Light green
+                       foreground="#ffffff",
+                       padding=[20, 15],
+                       font=("Segoe UI", 12, "bold"),
+                       borderwidth=1,
+                       relief="solid")
+        style.map("Apply.TButton",
+                 background=[("active", "#3E8E41")],  # Darker green on hover
+                 foreground=[("active", "#ffffff")],
                  relief=[("pressed", "sunken")])
         
         # Configure scene control button styles with colors
@@ -517,6 +534,7 @@ class MenuSystem:
         EM.subscribe(SCENE_CREATION_PROGRESS, self._on_scene_progress)
         EM.subscribe(SCENE_CREATION_COMPLETED, self._on_scene_completed)
         EM.subscribe(SCENE_CREATION_CANCELED, self._on_scene_canceled)
+        EM.subscribe(SCENE_CLEARED, self._on_scene_cleared)
         
         # Handle scene creation requests from menus
         EM.subscribe('scene/creation/request', self._on_scene_creation_request)
@@ -578,6 +596,11 @@ class MenuSystem:
         scene_tab = ttk.Frame(self.notebook)
         self.notebook.add(scene_tab, text="Scene")
         self._build_scene_tab(scene_tab)
+        
+        # Controls tab
+        controls_tab = ttk.Frame(self.notebook)
+        self.notebook.add(controls_tab, text="Controls")
+        self._build_controls_tab(controls_tab)
         
         # Config tab
         config_tab = ttk.Frame(self.notebook)
@@ -705,7 +728,7 @@ class MenuSystem:
         # Title with modern styling
         title_frame = ttk.Frame(parent)
         title_frame.pack(fill="x", pady=(0, 20))
-        ttk.Label(title_frame, text="Disaster Simulation Control", style="Title.TLabel").pack()
+        ttk.Label(title_frame, text="Drone Search & Rescue Simulator", style="Title.TLabel").pack()
         
         # Progress bar container with modern styling
         progress_frame = ttk.Frame(parent)
@@ -733,7 +756,7 @@ class MenuSystem:
         # Create scene with event-driven approach
         def create_scene_with_event():
             # Apply all config changes first to ensure latest values are used
-            self._apply_all_config_changes()
+            self._apply_all_changes()  # Use apply_all_changes instead of apply_all_config_changes
             
             # Disable all buttons during scene creation
             for btn in self.scene_buttons:
@@ -753,6 +776,8 @@ class MenuSystem:
         
         # Restart scene using event-based approach
         def restart_scene():
+            # Apply all changes including dynamic objects before restarting
+            self._apply_all_changes()
             self.status_label.configure(text="Restarting scene...", foreground="#f1c40f")
             restart_disaster_area(self.config)
             
@@ -786,21 +811,31 @@ class MenuSystem:
             btn_frame = ttk.Frame(frame)
             btn_frame.pack(fill="x", pady=(0, 10))
             
+            # Create a style specifically for these confirmation buttons
+            style = ttk.Style()
+            btn_style = "Confirmation.TButton"
+            style.configure(btn_style, 
+                           padding=[10, 10], 
+                           font=("Segoe UI", 11, "bold"),
+                           anchor="center",
+                           justify="center")
+            
             # Yes button
-            ttk.Button(btn_frame, 
-                      text="Yes, Clear",
-                      command=lambda: self._confirm_clear(dialog),
-                      style="Quit.TButton").pack(side="left", 
-                                               expand=True, 
-                                               padx=(0, 5))
+            yes_btn = ttk.Button(btn_frame, 
+                              text="Yes, Clear",
+                              command=lambda: self._confirm_clear(dialog),
+                              style=btn_style,
+                              compound="center")
+            yes_btn.pack(side="left", expand=True, padx=(0, 5), fill="both", ipady=5)
             
             # No button
-            ttk.Button(btn_frame,
-                      text="No, Cancel",
-                      command=dialog.destroy).pack(side="left",
-                                                expand=True,
-                                                padx=(5, 0))
-            
+            no_btn = ttk.Button(btn_frame,
+                             text="No, Cancel",
+                             command=dialog.destroy,
+                             style=btn_style,
+                             compound="center")
+            no_btn.pack(side="left", expand=True, padx=(5, 0), fill="both", ipady=5)
+        
         # Cancel ongoing scene creation 
         def cancel_creation():
             cancel_scene_creation()
@@ -989,7 +1024,11 @@ class MenuSystem:
         sim_frame.pack(fill="x", pady=10, padx=5)
         
         # Add simulation-related fields
-        sim_fields = [f for f in FIELDS if f['key'] not in ['num_rocks', 'num_bushes', 'num_foliage', 'num_birds', 'num_falling_trees', 'tree_spawn_interval', 'num_trees']]
+        sim_fields = [f for f in FIELDS if f['key'] not in [
+            'num_rocks', 'num_bushes', 'num_foliage', 
+            'num_birds', 'num_falling_trees', 'tree_spawn_interval', 
+            'num_trees', 'rc_sensitivity'
+        ]]
         for field in sim_fields:
             key, desc, typ = field['key'], field['desc'], field['type']
             frame = ttk.Frame(sim_frame)
@@ -1020,7 +1059,8 @@ class MenuSystem:
             
         # Add a single "Apply Changes" button to handle all changes
         apply_btn = ttk.Button(scrollable_frame, text="Apply Changes", 
-                              command=self._apply_all_changes)
+                              command=self._apply_all_changes,
+                              style="Apply.TButton")
         apply_btn.pack(fill="x", pady=(15, 5), padx=5)
 
         # Add Save/Load buttons
@@ -1101,7 +1141,11 @@ class MenuSystem:
             if field['key'] == key:
                 typ = field['type']
                 try:
-                    self.config[key] = typ(value)
+                    # Special handling for move_step to round to one decimal place
+                    if key == "move_step" and typ is float:
+                        self.config[key] = round(float(value), 1)
+                    else:
+                        self.config[key] = typ(value)
                     EM.publish('config/updated', key)
                 except Exception:
                     pass
@@ -1200,9 +1244,20 @@ class MenuSystem:
         dialog.destroy()
         self.cleanup()
         EM.publish('simulation/shutdown', None)
+        
+        # Force application to quit in case there are hanging threads
         if hasattr(self, 'root') and self.root:
-            self.root.quit()
-            self.root.destroy()
+            # Set a force-quit timer in case normal exit fails
+            # Note: after() schedules task, but we need to immediately start quitting process
+            self.root.after(500, lambda: os._exit(0))
+            
+            # Try normal exit first
+            try:
+                self.root.quit()
+                self.root.destroy()
+            except Exception as e:
+                self.logger.error("MenuSystem", f"Error during application shutdown: {e}")
+                # If we reach here, the force-quit will still happen via the scheduled after() call
 
     def _on_scene_progress(self, data):
         """Update the progress bar and status label when scene creation progresses."""
@@ -1250,20 +1305,52 @@ class MenuSystem:
         self.root.after(0, update_ui)
         
     def _on_scene_canceled(self, _):
-        """Handle scene creation cancellation."""
+        """Handle scene creation cancellation with error handling"""
         def update_ui():
-            self.status_label.configure(text="Scene creation canceled")
-            # Re-enable normal buttons and specifically disable the Cancel button
-            for i, btn in enumerate(self.scene_buttons):
-                if i == 2:  # Cancel button is index 2
-                    btn.configure(state="disabled")  # Disable the cancel button
-                else:
-                    btn.configure(state="normal")  # Enable other buttons
-            self.progress_bar.pack_forget()
-            # Update simulation stats
-            self._update_simulation_stats()
+            try:
+                self.status_label.configure(text="Scene creation canceled", foreground="white")
+                self.progress_var.set(0.0)
+                self.progress_bar.pack_forget()
+                
+                # Re-enable all buttons except Cancel
+                for btn in self.scene_buttons:
+                    if "Cancel" in btn["text"]:
+                        btn.configure(state="disabled")
+                    else:
+                        btn.configure(state="normal")
+            except Exception as e:
+                self.logger.error("MenuSystem", f"Error updating UI after scene canceled: {e}")
         
-        # Schedule the update on the main thread
+        # Schedule UI update on the main thread
+        self.root.after(0, update_ui)
+        
+    def _on_scene_cleared(self, _):
+        """Handle scene cleared event by updating UI state"""
+        def update_ui():
+            try:
+                # Reset status label
+                if hasattr(self, 'status_label'):
+                    self.status_label.configure(text="Scene cleared", foreground="white")
+                
+                # Reset victim indicators
+                if hasattr(self, 'distance_var'):
+                    self.distance_var.set("Not detected")
+                
+                if hasattr(self, 'elevation_var'):
+                    self.elevation_var.set("Not detected")
+                
+                if hasattr(self, 'direction_canvas'):
+                    self.direction_canvas.delete("all")  # Clear the direction indicator
+                
+                # Re-enable scene control buttons
+                if hasattr(self, 'scene_buttons'):
+                    for btn in self.scene_buttons:
+                        btn.configure(state="normal")
+                
+            except Exception as e:
+                self.logger.error("MenuSystem", f"Error updating UI after scene clear: {e}")
+        
+        # Schedule UI update on the main thread
         self.root.after(0, update_ui)
 
     def _on_scene_creation_request(self, config=None):
@@ -1617,7 +1704,7 @@ class MenuSystem:
         version_frame.pack(fill="x", pady=10, padx=15)  # Increased padding
         
         version_info = """
-• Version: HyperDrive Navigator v1.3.0
+• Version: HyperDrive Sync v1.3.1
 • Build: 10.05.2025
         """
         version_label = ttk.Label(
@@ -2087,24 +2174,9 @@ class MenuSystem:
                                    command=self._toggle_monitoring)
         toggle_btn.pack(side="left", padx=5)
         
-        # Create a canvas with scrollbar for the performance content
-        canvas = tk.Canvas(parent, bg="#0a0a0a", highlightthickness=0)
-        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
-
-        # Configure the canvas
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        # Create a window in the canvas to hold the scrollable frame
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw", width=canvas.winfo_width())
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        # Pack the scrollbar and canvas with padding
-        scrollbar.pack(side="right", fill="y", padx=(5, 0))
-        canvas.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        # Create a simple frame instead of scrollable canvas
+        scrollable_frame = ttk.Frame(parent)
+        scrollable_frame.pack(fill="both", expand=True, padx=5)
         
         # System Information Section
         sys_frame = ttk.LabelFrame(scrollable_frame, text="System Information", padding=15, labelanchor="n")
@@ -2234,17 +2306,6 @@ class MenuSystem:
         self.uptime_var = tk.StringVar(value="00:00:00")
         ttk.Label(uptime_frame, textvariable=self.uptime_var, style="TLabel").pack(side="left")
         
-        # Add mouse wheel scrolling support
-        canvas.bind_all("<MouseWheel>", lambda event: canvas.yview_scroll(int(-1 * (event.delta / 120)), "units"))
-        # For Linux/macOS (different event)
-        canvas.bind_all("<Button-4>", lambda event: canvas.yview_scroll(-1, "units"))
-        canvas.bind_all("<Button-5>", lambda event: canvas.yview_scroll(1, "units"))
-        
-        # Update canvas width when window is resized
-        def on_resize(event):
-            canvas.itemconfig(canvas.find_withtag("all")[0], width=event.width)
-        canvas.bind('<Configure>', on_resize)
-        
         # Start performance monitoring
         self._schedule_ui_update()
 
@@ -2284,6 +2345,25 @@ class MenuSystem:
         # Perform cleanup tasks
         self.logger.info("MenuSystem", "Performing cleanup tasks...")
         
+        # Cancel any pending scheduled tasks
+        if hasattr(self, '_monitoring_after_id') and self._monitoring_after_id:
+            try:
+                self.root.after_cancel(self._monitoring_after_id)
+                self._monitoring_after_id = None
+            except Exception as e:
+                self.logger.error("MenuSystem", f"Error cleaning up monitoring after task: {e}")
+        
+        # Cancel movement update schedule
+        try:
+            # Get all "after" ids and cancel them
+            for after_id in self.root.tk.call('after', 'info'):
+                try:
+                    self.root.after_cancel(after_id)
+                except Exception as e:
+                    self.logger.debug("MenuSystem", f"Error canceling after task {after_id}: {e}")
+        except Exception as e:
+            self.logger.error("MenuSystem", f"Error cleaning up after tasks: {e}")
+        
         # Clear any pressed keys and stop movement
         self._ui_pressed_keys.clear()
         try:
@@ -2293,13 +2373,12 @@ class MenuSystem:
         except Exception as e:
             self.logger.error("MenuSystem", f"Error stopping movement: {e}")
         
-        # If monitoring is active, deactivate it
-        if hasattr(self, '_monitoring_after_id') and self._monitoring_after_id:
+        # Clean up RC settings if they exist
+        if hasattr(self, 'rc_settings') and self.rc_settings:
             try:
-                self.root.after_cancel(self._monitoring_after_id)
-                self._monitoring_after_id = None
+                self.rc_settings.destroy()
             except Exception as e:
-                self.logger.error("MenuSystem", f"Error cleaning up 'after' tasks: {e}")
+                self.logger.error("MenuSystem", f"Error cleaning up RC settings: {e}")
         
         # Unsubscribe from events
         EM.unsubscribe('scene/progress', self._on_scene_progress)
@@ -2482,7 +2561,7 @@ class MenuSystem:
     def _build_logging_tab(self, parent):
         """Build the logging configuration tab."""
         # Create a canvas with scrollbar for better organization
-        canvas = tk.Canvas(parent, bg="#1a1a1a")  # Use dark background to match theme
+        canvas = tk.Canvas(parent, bg="#1a1a1a", highlightthickness=0)
         scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
         
@@ -2493,12 +2572,12 @@ class MenuSystem:
         )
         
         # Create a window in the canvas to hold the scrollable frame
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw", width=canvas.winfo_width())
         canvas.configure(yscrollcommand=scrollbar.set)
         
-        # Pack the scrollbar and canvas
-        scrollbar.pack(side="right", fill="y")
-        canvas.pack(side="left", fill="both", expand=True)
+        # Pack the scrollbar and canvas with padding
+        scrollbar.pack(side="right", fill="y", padx=(5, 0))
+        canvas.pack(side="left", fill="both", expand=True, padx=(0, 5))
         
         # Title
         title_label = ttk.Label(
@@ -2509,8 +2588,8 @@ class MenuSystem:
         title_label.pack(pady=(0, 20))
         
         # Log Level selection section
-        log_level_frame = ttk.LabelFrame(scrollable_frame, text="Log Level", labelanchor="n")
-        log_level_frame.pack(fill="x", padx=10, pady=10)
+        log_level_frame = ttk.LabelFrame(scrollable_frame, text="Log Level", labelanchor="n", padding=15)
+        log_level_frame.pack(fill="x", padx=5, pady=10)
         
         log_level_content = ttk.Frame(log_level_frame)
         log_level_content.pack(fill="x", padx=10, pady=10)
@@ -2533,7 +2612,8 @@ class MenuSystem:
         apply_level_btn = ttk.Button(
             log_level_content, 
             text="Apply", 
-            command=self._change_log_level
+            command=self._change_log_level,
+            style="Apply.TButton"
         )
         apply_level_btn.pack(side="left", padx=10)
         
@@ -2542,8 +2622,8 @@ class MenuSystem:
         self.current_level_label.pack(side="right", padx=10)
         
         # Debug Level selection section
-        debug_level_frame = ttk.LabelFrame(scrollable_frame, text="Debug Verbosity", labelanchor="n")
-        debug_level_frame.pack(fill="x", padx=10, pady=10)
+        debug_level_frame = ttk.LabelFrame(scrollable_frame, text="Debug Verbosity", labelanchor="n", padding=15)
+        debug_level_frame.pack(fill="x", padx=5, pady=10)
         
         debug_level_content = ttk.Frame(debug_level_frame)
         debug_level_content.pack(fill="x", padx=10, pady=10)
@@ -2578,7 +2658,8 @@ class MenuSystem:
         apply_debug_btn = ttk.Button(
             debug_level_content, 
             text="Apply Debug Level", 
-            command=self._change_debug_level
+            command=self._change_debug_level,
+            style="Apply.TButton"
         )
         apply_debug_btn.pack(pady=10)
         
@@ -2587,8 +2668,8 @@ class MenuSystem:
         self.current_debug_label.pack(pady=5)
         
         # File Logging section
-        file_logging_frame = ttk.LabelFrame(scrollable_frame, text="File Logging", labelanchor="n")
-        file_logging_frame.pack(fill="x", padx=10, pady=10)
+        file_logging_frame = ttk.LabelFrame(scrollable_frame, text="File Logging", labelanchor="n", padding=15)
+        file_logging_frame.pack(fill="x", padx=5, pady=10)
         
         file_logging_content = ttk.Frame(file_logging_frame)
         file_logging_content.pack(fill="x", padx=10, pady=10)
@@ -2615,7 +2696,8 @@ class MenuSystem:
         apply_file_logging_btn = ttk.Button(
             file_logging_content, 
             text="Apply File Logging Setting", 
-            command=self._toggle_file_logging
+            command=self._toggle_file_logging,
+            style="Apply.TButton"
         )
         apply_file_logging_btn.pack(pady=10)
         
@@ -2635,8 +2717,8 @@ class MenuSystem:
         open_logs_btn.pack(pady=10)
         
         # Verbose mode section
-        verbose_frame = ttk.LabelFrame(scrollable_frame, text="Verbose Mode", labelanchor="n")
-        verbose_frame.pack(fill="x", padx=10, pady=10)
+        verbose_frame = ttk.LabelFrame(scrollable_frame, text="Verbose Mode", labelanchor="n", padding=15)
+        verbose_frame.pack(fill="x", padx=5, pady=10)
         
         verbose_content = ttk.Frame(verbose_frame)
         verbose_content.pack(fill="x", padx=10, pady=10)
@@ -2654,19 +2736,28 @@ class MenuSystem:
         ttk.Label(
             verbose_content, 
             text="Verbose mode enables detailed logging at DEBUG level with all debug messages",
-            wraplength=400
+            wraplength=500
         ).pack(pady=5)
         
         # Apply verbose mode button
         apply_verbose_btn = ttk.Button(
             verbose_content, 
             text="Apply Verbose Setting", 
-            command=self._toggle_verbose_mode
+            command=self._toggle_verbose_mode,
+            style="Apply.TButton"
         )
         apply_verbose_btn.pack(pady=10)
         
+        # Update canvas width when window is resized
+        def on_resize(event):
+            canvas.itemconfig(canvas.find_withtag("all")[0], width=event.width)
+        canvas.bind('<Configure>', on_resize)
+        
         # Add mouse wheel scrolling
         canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
+        # For Linux/macOS (different event)
+        canvas.bind_all("<Button-4>", lambda e: canvas.yview_scroll(-1, "units"))
+        canvas.bind_all("<Button-5>", lambda e: canvas.yview_scroll(1, "units"))
         
         # Update the current settings
         self._update_logging_status()
@@ -2950,4 +3041,167 @@ class MenuSystem:
         except Exception as e:
             self.logger.error("MenuSystem", f"Error converting log level to name: {e}")
             return "UNKNOWN"
+
+    def _build_controls_tab(self, parent):
+        """Build the controls tab with controller settings"""
+        # Title with modern styling
+        title_frame = ttk.Frame(parent)
+        title_frame.pack(fill="x", pady=(0, 20))
+        ttk.Label(title_frame, text="Controller Settings", style="Title.TLabel").pack()
+        
+        # Create a canvas with scrollbar for the controls options - set proper background color
+        canvas = tk.Canvas(parent, bg="#1a1a1a", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas, style="TFrame")  # Use themed frame
+
+        # Configure the canvas
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        # Create a window in the canvas to hold the scrollable frame
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw", width=canvas.winfo_width())
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Pack the scrollbar and canvas with padding
+        scrollbar.pack(side="right", fill="y", padx=(5, 0))  # Add padding on the left of scrollbar
+        canvas.pack(side="left", fill="both", expand=True, padx=(0, 5))  # Add padding on the right of canvas
+        
+        # Keyboard Controls Section
+        keyboard_frame = ttk.LabelFrame(scrollable_frame, text="Keyboard Controls", padding=15, labelanchor="n")
+        keyboard_frame.pack(fill="x", pady=10, padx=5)
+        
+        # Create a keyboard controls info display
+        key_info = """Movement Controls:"""
+        
+        ttk.Label(
+            keyboard_frame,
+            text=key_info,
+            justify="left",
+            wraplength=500
+        ).pack(padx=10, pady=5, anchor="w")
+        
+        # Keyboard sensitivity settings
+        key_settings_frame = ttk.Frame(keyboard_frame)
+        key_settings_frame.pack(fill="x", pady=10)
+        
+        # Move step (keyboard sensitivity)
+        move_frame = ttk.Frame(key_settings_frame)
+        move_frame.pack(fill="x", pady=5)
+        
+        ttk.Label(
+            move_frame,
+            text="Movement Speed:",
+            width=20
+        ).pack(side="left")
+        
+        # Move step slider
+        self.move_step_var = tk.DoubleVar(value=self.config.get("move_step", 0.2))
+        move_scale = ttk.Scale(
+            move_frame,
+            from_=0.1,
+            to=1.0,
+            orient="horizontal",
+            variable=self.move_step_var,
+            command=self._update_move_step_label
+        )
+        move_scale.pack(side="left", fill="x", expand=True, padx=5)
+        
+        self.move_step_label = ttk.Label(
+            move_frame,
+            text=f"{self.move_step_var.get():.1f}",
+            width=5
+        )
+        self.move_step_label.pack(side="left", padx=5)
+        
+        # Rotate step (rotation speed)
+        rotate_frame = ttk.Frame(key_settings_frame)
+        rotate_frame.pack(fill="x", pady=5)
+        
+        ttk.Label(
+            rotate_frame,
+            text="Rotation Speed:",
+            width=20
+        ).pack(side="left")
+        
+        # Rotate step slider
+        self.rotate_step_var = tk.DoubleVar(value=self.config.get("rotate_step_deg", 15.0))
+        rotate_scale = ttk.Scale(
+            rotate_frame,
+            from_=5.0,
+            to=40.0,
+            orient="horizontal",
+            variable=self.rotate_step_var,
+            command=self._update_rotate_step_label
+        )
+        rotate_scale.pack(side="left", fill="x", expand=True, padx=5)
+        
+        self.rotate_step_label = ttk.Label(
+            rotate_frame,
+            text=f"{self.rotate_step_var.get():.1f}°",
+            width=5
+        )
+        self.rotate_step_label.pack(side="left", padx=5)
+        
+        # Apply keyboard settings button
+        apply_keyboard_btn = ttk.Button(
+            keyboard_frame,
+            text="Apply Keyboard Settings",
+            command=self._apply_keyboard_settings,
+            style="Apply.TButton"
+        )
+        apply_keyboard_btn.pack(pady=10)
+        
+        # RC Controller Section
+        # Create an instance of RCControllerSettings
+        self.rc_settings = RCControllerSettings(scrollable_frame, self.config)
+        
+        # Add mouse wheel scrolling support
+        canvas.bind_all("<MouseWheel>", lambda event: canvas.yview_scroll(int(-1 * (event.delta / 120)), "units"))
+        # For Linux/macOS (different event)
+        canvas.bind_all("<Button-4>", lambda event: canvas.yview_scroll(-1, "units"))
+        canvas.bind_all("<Button-5>", lambda event: canvas.yview_scroll(1, "units"))
+        
+        # Update canvas width when window is resized
+        def on_resize(event):
+            canvas.itemconfig(canvas.find_withtag("all")[0], width=event.width)
+        canvas.bind('<Configure>', on_resize)
+    
+    def _update_move_step_label(self, value):
+        """Update the movement speed value label"""
+        try:
+            val = float(value)
+            self.move_step_label.config(text=f"{val:.1f}")
+        except:
+            pass
+    
+    def _update_rotate_step_label(self, value):
+        """Update the rotation speed value label"""
+        try:
+            val = float(value)
+            self.rotate_step_label.config(text=f"{val:.1f}°")
+        except:
+            pass
+    
+    def _apply_keyboard_settings(self):
+        """Apply keyboard control settings"""
+        try:
+            # Update config with current UI values, rounding move_step to one decimal
+            self.config["move_step"] = round(self.move_step_var.get(), 1)
+            self.config["rotate_step_deg"] = self.rotate_step_var.get()
+            
+            # Publish config update events
+            EM.publish('config/updated', 'move_step')
+            EM.publish('config/updated', 'rotate_step_deg')
+            
+            # Show confirmation via status label
+            self.status_label.configure(text="Keyboard settings updated")
+            self.root.after(2000, lambda: self.status_label.configure(text=""))
+            
+            self.logger.info("MenuSystem", f"Updated keyboard settings: move_step={self.config['move_step']}, rotate_step_deg={self.config['rotate_step_deg']}")
+        except Exception as e:
+            self.status_label.configure(text=f"Error updating keyboard settings: {e}")
+            self.root.after(2000, lambda: self.status_label.configure(text=""))
+            self.logger.error("MenuSystem", f"Error updating keyboard settings: {e}")
 

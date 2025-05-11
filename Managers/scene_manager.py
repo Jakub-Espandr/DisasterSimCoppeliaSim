@@ -258,9 +258,26 @@ class SceneManager:
         self.completed_objects = 0
         self.objects = []
         
-        # Initialize RandomObjectManager and create dynamic objects
+        # Initialize RandomObjectManager with explicitly set parameters from config
         self.random_object_manager = RandomObjectManager(SC.sim, area_size)
-        self.random_object_manager.create_object()  # This creates birds and trees
+        
+        # Explicitly set the dynamic object counts from config
+        num_birds = config.get("num_birds", 10)
+        num_falling_trees = config.get("num_falling_trees", 5)
+        tree_spawn_interval = config.get("tree_spawn_interval", 30.0)
+        bird_speed = config.get("bird_speed", 1.0)
+        
+        self.logger.info("SceneManager", f"Setting dynamic objects from config: {num_birds} birds (speed: {bird_speed}), {num_falling_trees} trees, spawn: {tree_spawn_interval}s")
+        
+        # Update the RandomObjectManager with these values
+        # Note: This internally calls _update_objects() which clears and creates objects,
+        # so we don't need to call create_object() again
+        self.random_object_manager.set_object_counts(
+            num_birds=num_birds,
+            num_falling_trees=num_falling_trees,
+            tree_spawn_interval=tree_spawn_interval,
+            bird_speed=bird_speed
+        )
         
         # Try to teleport quadcopter if it exists
         self._teleport_quadcopter_to_edge()
@@ -342,10 +359,51 @@ class SceneManager:
             self.random_object_manager = None
         
         try:
-            existing_scene = does_object_exist_by_alias("SceneElements")
-            if existing_scene is not None:
-                SC.sim.removeObject(existing_scene)
+            # List of objects to preserve (essential objects)
+            preserve_objects = []
+            try:
+                # Try to get quadcopter and target if they exist
+                quadcopter = SC.sim.getObject('/Quadcopter')
+                target = SC.sim.getObject('/target')
+                preserve_objects.extend([quadcopter, target])
+            except:
+                pass  # If objects don't exist, that's fine
+
+            # Try to remove objects by their categories first
+            categories = ['Floor', 'Rocks', 'Trees', 'Bushes', 'Foliage', 'Victims']
+            for category in categories:
+                try:
+                    category_dummy = SC.sim.getObject(f'./{category}')
+                    # Get all objects under this category
+                    objects = SC.sim.getObjectsInTree(category_dummy, SC.sim.handle_all)
+                    # Remove all objects in this category
+                    for obj in objects:
+                        if obj not in preserve_objects:
+                            try:
+                                SC.sim.removeObject(obj)
+                                self.logger.debug_at_level(DEBUG_L2, "SceneManager", f"Removed {category} object: {obj}")
+                            except Exception as e:
+                                self.logger.debug_at_level(DEBUG_L2, "SceneManager", f"Error removing {category} object {obj}: {e}")
+                    # Remove the category dummy itself
+                    SC.sim.removeObject(category_dummy)
+                    self.logger.debug_at_level(DEBUG_L2, "SceneManager", f"Removed {category} category dummy")
+                except:
+                    pass  # If category doesn't exist, that's fine
+
+            # Try to remove the main scene dummy
+            try:
+                scene_dummy = SC.sim.getObject('./SceneElements')
+                SC.sim.removeObject(scene_dummy)
                 self.logger.debug_at_level(DEBUG_L1, "SceneManager", "Removed scene elements dummy")
+            except:
+                pass  # If scene dummy doesn't exist, that's fine
+            
+            # Instead of trying to get all objects using getObjects (which seems problematic),
+            # we'll just make sure we've removed all the tracked objects
+            self.logger.info("SceneManager", "Cleanup complete - removed all tracked scene objects")
+            
+            # If we need to clean up anything else in the future, we can implement a more specific
+            # approach rather than trying to get all objects in the scene
         except Exception as e:
             self.logger.error("SceneManager", f"Error while clearing scene: {e}")
         

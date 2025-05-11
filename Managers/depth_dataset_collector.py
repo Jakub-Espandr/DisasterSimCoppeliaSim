@@ -8,7 +8,7 @@ import datetime
 from Utils.capture_utils import capture_depth, capture_pose, capture_distance_to_victim
 from Utils.save_utils import save_batch_npz
 from Utils.config_utils import get_default_config
-from Managers.scene_manager import SCENE_CREATION_COMPLETED
+from Managers.scene_manager import SCENE_CREATION_COMPLETED, SCENE_CLEARED
 from Utils.log_utils import get_logger, DEBUG_L1, DEBUG_L2, DEBUG_L3
 
 from Managers.Connections.sim_connection import SimConnection
@@ -36,9 +36,16 @@ def get_victim_direction():
         tuple: ((dx, dy, dz), distance) - normalized direction vector and Euclidean distance
     """
     try:
-        # Get object handles
+        # Get quadcopter handle
         quad = SC.sim.getObject('/Quadcopter')
-        vic = SC.sim.getObject('/Victim')
+        
+        # Check if victim exists
+        try:
+            vic = SC.sim.getObject('/Victim')
+        except Exception:
+            # Victim doesn't exist
+            logger.debug_at_level(2, "DepthCollector", "No victim in scene, skipping direction calculation")
+            return (0.0, 0.0, 0.0), -1.0
 
         # Get positions
         qx, qy, qz = SC.sim.getObjectPosition(quad, -1)
@@ -142,6 +149,7 @@ class DepthDatasetCollector:
         
         # Subscribe to scene creation completed event
         EM.subscribe(SCENE_CREATION_COMPLETED, self._on_scene_completed)
+        EM.subscribe(SCENE_CLEARED, self._on_scene_cleared)
 
         # Event subscriptions
         EM.subscribe('keyboard/move',   self._on_move)
@@ -219,6 +227,19 @@ class DepthDatasetCollector:
         self.active = True
         self.logger.info("DepthCollector", "Scene creation completed. Activating data capture.")
         
+    def _on_scene_cleared(self, _):
+        """Handle scene cleared event by deactivating data collection"""
+        self.active = False
+        self.logger.info("DepthCollector", "Scene cleared, deactivating data collection")
+        
+        # Clear any pending data
+        self.depths.clear()
+        self.poses.clear()
+        self.frames.clear()
+        self.distances.clear()
+        self.actions.clear()
+        self.victim_dirs.clear()
+        
     def capture(self):
         """Manually trigger a data capture"""
         EM.publish(DATASET_CAPTURE_REQUEST, self.global_frame_counter)
@@ -236,26 +257,29 @@ class DepthDatasetCollector:
 
         # Calculate distance to victim
         distance = capture_distance_to_victim()
+        victim_dir = (0.0, 0.0, 0.0)
         
-        # Calculate normalized direction to victim
-        try:
-            victim_dir, victim_dist = get_victim_direction()
-            
-            # Only override distance if the one from get_victim_direction is valid
-            if victim_dist > 0:
-                distance = victim_dist
+        # Only attempt to calculate victim direction if we have a valid distance
+        if distance > 0:
+            # Calculate normalized direction to victim
+            try:
+                victim_dir, victim_dist = get_victim_direction()
                 
-                # Publish victim detected event for UI updates
-                # This will update the victim indicator in the UI
-                EM.publish(VICTIM_DETECTED, {
-                    'frame': self.global_frame_counter,
-                    'distance': victim_dist,
-                    'victim_vec': victim_dir,
-                    'is_background_thread': False
-                })
-        except Exception as e:
-            self.logger.error("DepthCollector", f"Error getting victim direction: {e}")
-            victim_dir = (0.0, 0.0, 0.0)
+                # Only override distance if the one from get_victim_direction is valid
+                if victim_dist > 0:
+                    distance = victim_dist
+                    
+                    # Publish victim detected event for UI updates
+                    # This will update the victim indicator in the UI
+                    EM.publish(VICTIM_DETECTED, {
+                        'frame': self.global_frame_counter,
+                        'distance': victim_dist,
+                        'victim_vec': victim_dir,
+                        'is_background_thread': False
+                    })
+            except Exception as e:
+                self.logger.error("DepthCollector", f"Error getting victim direction: {e}")
+                victim_dir = (0.0, 0.0, 0.0)
 
         # Capture depth and pose data
         depth_array = capture_depth(self.sensor_handle)
@@ -287,11 +311,46 @@ class DepthDatasetCollector:
             self._flush_buffer()
 
     def shutdown(self):
-        if self.depths:
-            self._flush_buffer()
+        """Shutdown the data collector and flush the buffer"""
+        self.logger.debug_at_level(DEBUG_L1, "DepthCollector", "Shutting down depth dataset collector")
         self.shutdown_requested = True
-        self.saving_thread.join()
-        self.logger.info("DepthCollector", "Shutdown complete, all data saved.")
+        self.active = False
+        
+        # Unsubscribe from events to prevent more data capture during shutdown
+        try:
+            EM.unsubscribe('simulation/frame', self._on_simulation_frame)
+            EM.unsubscribe('keyboard/move', self._on_move)
+            EM.unsubscribe('keyboard/rotate', self._on_rotate)
+            EM.unsubscribe(SCENE_CREATION_COMPLETED, self._on_scene_completed)
+            EM.unsubscribe(SCENE_CLEARED, self._on_scene_cleared)
+            EM.unsubscribe(DATASET_DIR_CHANGED, self._on_dir_changed)
+            EM.unsubscribe('config/updated', self._on_config_updated)
+            self.logger.debug_at_level(DEBUG_L1, "DepthCollector", "Unsubscribed from all events")
+        except Exception as e:
+            self.logger.error("DepthCollector", f"Error unsubscribing from events: {e}")
+        
+        # Flush any remaining data
+        if self.depths:
+            try:
+                self._flush_buffer()
+                self.logger.debug_at_level(DEBUG_L1, "DepthCollector", "Buffer flushed during shutdown")
+            except Exception as e:
+                self.logger.error("DepthCollector", f"Error flushing buffer during shutdown: {e}")
+                
+        # Wait for background thread to finish
+        try:
+            # Put None in the queue to signal end
+            self.save_queue.put(None)
+            
+            # Wait for a short time for the thread to finish
+            if hasattr(self, 'saving_thread') and self.saving_thread.is_alive():
+                self.saving_thread.join(timeout=2.0)
+                if self.saving_thread.is_alive():
+                    self.logger.warning("DepthCollector", "Background saving thread did not finish in time")
+        except Exception as e:
+            self.logger.error("DepthCollector", f"Error waiting for background thread: {e}")
+            
+        self.logger.info("DepthCollector", "Depth dataset collector shutdown complete")
 
     def _safe_stack(self, name, arr_list, dtype=None):
         try:
@@ -343,14 +402,26 @@ class DepthDatasetCollector:
             self.logger.error("DepthCollector", f"Error preparing batch for saving: {e}")
 
     def _background_saver(self):
-        """Background thread that saves batches from the queue"""
-        while not self.shutdown_requested or not self.save_queue.empty():
+        """Background thread for saving batches"""
+        self.logger.info("DepthCollector", "Background saving thread started")
+        while not self.shutdown_requested:
             try:
                 batch = self.save_queue.get(timeout=1.0)
+                
+                # Check for shutdown signal
+                if batch is None:
+                    self.logger.debug_at_level(DEBUG_L1, "DepthCollector", "Received shutdown signal in background saver")
+                    break
+                
                 self._save_batch(batch)
                 self.save_queue.task_done()
             except queue.Empty:
+                # Timeout is expected, just continue the loop
                 continue
+            except Exception as e:
+                self.logger.error("DepthCollector", f"Error in background saver: {e}")
+                
+        self.logger.info("DepthCollector", "Background saving thread exiting")
 
     def _save_batch(self, batch):
         """Save a batch of data as NPZ file"""
