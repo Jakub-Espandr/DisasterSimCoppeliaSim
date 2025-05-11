@@ -10,6 +10,8 @@ Thumbs.db
 *.log
 *.tmp
 
+# Ignore backup and archive files
+*.zip
 # Ignore IDE specific files
 .vscode/
 
