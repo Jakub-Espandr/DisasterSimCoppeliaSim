@@ -134,4 +134,4 @@ Comprehensive UI with radar indicators, elevation display, and real-time vector 
 
 ## License
 
-MIT License
+NCPL License
