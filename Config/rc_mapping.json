@@ -5,11 +5,11 @@
     },
     "yaw": {
         "axis": 3,
-        "invert": false
+        "invert": true
     },
     "pitch": {
         "axis": 1,
-        "invert": true
+        "invert": false
     },
     "roll": {
         "axis": 0,

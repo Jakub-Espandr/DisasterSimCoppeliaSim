@@ -1,3 +1,44 @@
+## [V.1.3.2] - HyperDrive Pulse - 2025-05-16
+
+### Added
+**- Enhanced RC Controller Visualization:**  
+- Added visual joystick representation in the RC Controller test window
+- Implemented real-time visualization of stick positions with color-coded indicators
+- Created dedicated joystick visualizer component for consistent UI across the application
+- Added support for displaying both Pitch/Roll and Throttle/Yaw movements simultaneously
+
+**- Improved Single-Axis Movement Mode:**  
+- Implemented single-axis movement with strict one-axis-at-a-time operation
+- Added logic to only allow the axis with the largest input to be active
+
+**- RC Controller Settings Enhancements:**  
+- Added adaptive display formatting for sensitivity values based on magnitude
+- Improved RC Mapping Wizard with visual feedback during axis mapping
+
+**- UI Improvements:**  
+- Enhanced progress bar lengths for better visualization of control inputs
+- Updated Help tab with comprehensive documentation of all features
+
+### Changed
+**- RC Controller Loop Implementation:**  
+- Added sophisticated adaptive timing system with moving average for frame time
+- Implemented dynamic sleep times based on system load for better responsiveness
+- Added optimization to only send updates when values change significantly
+- Enhanced error handling with comprehensive try/except blocks
+
+### Fixed
+**- RC Controller Responsiveness:**  
+- Fixed lag between joystick movement and drone response
+- Resolved issue with RC controller mappings structure causing TypeError
+- Added proper error handling for axis values in get_axis_value function
+
+### Performance
+**- Optimized RC Controller Processing:**  
+- Implemented frame time tracking with moving average for stable timing
+- Added dynamic sleep calculation based on processing load
+- Reduced unnecessary updates with value change detection
+- Enhanced error recovery with small delays before retrying after errors
+
 ## [V.1.3.1] - HyperDrive Sync - 2025-05-11
 
 ### Added
@@ -129,7 +170,7 @@
 
 ---
 
-## [V.1.1.0] - Cosmic Navigator - 2025-05-08
+## [V.1.1.0] - Cosmic Navigator - 2025-05-08
 
 ### Added
 **- Added RC transmitter (joystick) control support:**  
@@ -161,7 +202,7 @@
 
 ---
 
-## [V.1.0.1] - Stellar Fix - 2025-05-08
+## [V.1.0.1] - Stellar Fix - 2025-05-08
 
 ### Added
 - Added dynamically moving objects such as birds and falling trees:  
@@ -170,7 +211,7 @@
 
 ---
 
-## [V.1.0.0] - Stellar Fix - 2025-05-05
+## [V.1.0.0] - Stellar Fix - 2025-05-05
 
 ### Added
 **- Added Status tab with comprehensive victim detection visualization:**  

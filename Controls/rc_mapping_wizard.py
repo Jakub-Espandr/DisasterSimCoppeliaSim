@@ -5,8 +5,10 @@ import json
 import os
 import time
 import threading
+import math
 from Utils.log_utils import get_logger, DEBUG_L1, DEBUG_L2, DEBUG_L3
 from Core.event_manager import EventManager
+from Controls.joystick_visualizer import JoystickVisualizer
 
 EM = EventManager.get_instance()
 
@@ -31,89 +33,34 @@ class RCMappingWizard:
         pygame.init()
         pygame.joystick.init()
         
-    def start(self):
-        """Start the mapping wizard"""
-        # Completely reinitialize pygame - this helps with certain joystick issues
+        # Try to initialize the joystick
         try:
-            # Quit pygame if it's already initialized
-            pygame.quit()
-            
-            # Reinitialize pygame and joystick subsystem
-            pygame.init()
-            pygame.joystick.init()
-            
-            # Log initialization status
-            init_status = pygame.get_init()
-            joystick_init_status = pygame.joystick.get_init()
-            self.logger.info("RC", f"Pygame initialized: {init_status}, Joystick subsystem: {joystick_init_status}")
-            
-            if not init_status or not joystick_init_status:
-                import tkinter.messagebox as messagebox
-                messagebox.showerror("Controller Error", 
-                                   "Could not initialize pygame. Please ensure you have pygame installed correctly.")
-                return
-        except Exception as e:
-            self.logger.error("RC", f"Error reinitializing pygame: {str(e)}")
-            import tkinter.messagebox as messagebox
-            messagebox.showerror("Controller Error", 
-                               f"Error initializing controller subsystem: {str(e)}")
-            return
-            
-        # Check for available joysticks
-        try:
-            joystick_count = pygame.joystick.get_count()
-            if joystick_count == 0:
-                import tkinter.messagebox as messagebox
-                messagebox.showerror("Controller Error", 
-                                   "No joystick detected! Please connect your RC controller and try again.")
-                self.logger.warning("RC", "No joystick detected for mapping wizard")
-                return
-                
-            self.logger.info("RC", f"Found {joystick_count} joystick(s)")
-            
-            # Initialize joystick
-            self.joystick = pygame.joystick.Joystick(0)
-            self.joystick.init()
-            
-            # Log joystick details
-            joystick_name = self.joystick.get_name()
-            joystick_id = self.joystick.get_instance_id()
-            self.logger.info("RC", f"Using joystick: {joystick_name} (ID: {joystick_id})")
-            
-            # Test joystick access by reading first axis
-            try:
-                # IMPORTANT: Only pump events from the main thread
-                pygame.event.pump()
-                if self.joystick.get_numaxes() > 0:
-                    test_value = self.joystick.get_axis(0)
-                    self.logger.debug_at_level(DEBUG_L1, "RC", f"Successfully read from joystick, first axis value: {test_value}")
-                else:
-                    self.logger.warning("RC", "Joystick has no axes")
-                    import tkinter.messagebox as messagebox
-                    messagebox.showerror("Controller Error", 
-                                       "Your controller doesn't have any axes to map! Please use a different controller.")
-                    return
-            except Exception as e:
-                self.logger.error("RC", f"Error testing joystick access: {str(e)}")
-                import tkinter.messagebox as messagebox
-                messagebox.showerror("Controller Error", 
-                                   f"Could not read data from your controller. Error: {str(e)}\n\nPlease check your controller connection and permissions.")
-                return
-                
+            if pygame.joystick.get_count() > 0:
+                self.joystick = pygame.joystick.Joystick(0)
+                self.joystick.init()
         except Exception as e:
             self.logger.error("RC", f"Error initializing joystick: {str(e)}")
-            import tkinter.messagebox as messagebox
-            messagebox.showerror("Controller Error", 
-                               f"Error initializing controller: {str(e)}")
-            return
+            
+    def start(self):
+        """Start the mapping wizard"""
+        if not self.joystick:
+            try:
+                if pygame.joystick.get_count() > 0:
+                    self.joystick = pygame.joystick.Joystick(0)
+                    self.joystick.init()
+                else:
+                    self.logger.error("RC", "No joystick available")
+                    return False
+            except Exception as e:
+                self.logger.error("RC", f"Error initializing joystick: {str(e)}")
+                return False
         
-        # Create wizard window
+        # Create the wizard window
         self.window = tk.Toplevel(self.parent)
-        self.window.title("RC Controller Mapping")
-        self.window.geometry("650x650")  
-        self.window.minsize(650, 650)    # Set minimum size
+        self.window.title("RC Controller Mapping Wizard")
+        self.window.geometry("680x900")
+        self.window.minsize(680, 900)    # Set minimum size
         self.window.transient(self.parent)
-        self.window.grab_set()  # Make modal
         
         # Apply dark theme to the window
         self.window.configure(bg="#2E2E2E")
@@ -125,46 +72,35 @@ class RCMappingWizard:
         style.configure("Dark.TLabelframe.Label", background="#2E2E2E", foreground="#FFFFFF")
         style.configure("Dark.TLabel", background="#2E2E2E", foreground="#FFFFFF")
         style.configure("Dark.TButton", background="#3E3E3E", foreground="#FFFFFF")
-        style.map("TButton", 
-            background=[("active", "#3E3E3E"), ("pressed", "#555555")],
-            foreground=[("active", "#FFFFFF"), ("pressed", "#FFFFFF")])
-        style.configure("Horizontal.TProgressbar", 
-            background="#00AAFF",
-            troughcolor="#444444",
-            bordercolor="#444444",
-            lightcolor="#444444",
-            darkcolor="#444444")
-            
-        # Special green style for the confirm button
-        style.configure("Green.TButton", 
-            background="#4CAF50",  # Light green
-            foreground="#FFFFFF")
-        style.map("Green.TButton",
-            background=[("active", "#66BB6A"), ("pressed", "#43A047")],  # Lighter on hover, darker on press
+        
+        # Define a green button style
+        style.configure("Green.TButton", background="#00AA00", foreground="#FFFFFF")
+        style.map("Green.TButton", 
+            background=[("active", "#00CC00"), ("pressed", "#009900")],
             foreground=[("active", "#FFFFFF"), ("pressed", "#FFFFFF")])
         
-        # Main instruction label
+        # Main title and instructions
+        title_frame = ttk.Frame(self.window, style="Dark.TFrame")
+        title_frame.pack(fill="x", padx=20, pady=10)
+        
         self.instruction_label = ttk.Label(
-            self.window, 
+            title_frame,
             text="RC Controller Mapping Wizard",
-            font=("Segoe UI", 16, "bold"),
-            wraplength=600,
+            font=("Segoe UI", 14, "bold"),
             style="Dark.TLabel"
         )
-        self.instruction_label.pack(pady=(20, 10))
+        self.instruction_label.pack(anchor="center", pady=5)
         
-        # Current step instruction
         self.step_label = ttk.Label(
-            self.window, 
-            text="Please follow the instructions to map your controller",
-            font=("Segoe UI", 12),
-            wraplength=600,
+            title_frame,
+            text="Step 1/4: Please move the Throttle stick fully in both directions",
+            font=("Segoe UI", 11),
             style="Dark.TLabel"
         )
-        self.step_label.pack(pady=(0, 20))
+        self.step_label.pack(anchor="center", pady=5)
         
-        # Control info frame
-        control_frame = ttk.LabelFrame(self.window, text="Control Details", style="Dark.TLabelframe")
+        # Current control being mapped
+        control_frame = ttk.Frame(self.window, style="Dark.TFrame")
         control_frame.pack(fill="x", padx=20, pady=10)
         
         self.control_name = ttk.Label(
@@ -241,6 +177,14 @@ class RCMappingWizard:
             foreground="#FFFFFF"  # Ensure white text
         )
         self.detection_label.pack(side="left", fill="x", expand=True)
+        
+        # Add joystick visualizer
+        viz_frame = ttk.LabelFrame(self.window, text="Joystick Visualization", padding=10, style="Dark.TLabelframe")
+        viz_frame.pack(fill="both", expand=True, pady=10, padx=20)
+        
+        # Create the visualizer
+        self.joystick_viz = JoystickVisualizer(viz_frame, width=200, height=200)
+        self.joystick_viz.pack(anchor="center", pady=10)
         
         # Add a spacer frame to push buttons to the bottom
         spacer_frame = ttk.Frame(self.window, style="Dark.TFrame")
@@ -331,6 +275,12 @@ class RCMappingWizard:
             
             # Read all axis values
             num_axes = self.joystick.get_numaxes()
+            
+            # Variables to track the most active axis for visualization
+            max_movement_index = -1
+            max_movement_value = 0
+            max_movement_raw_value = 0
+            
             for i in range(num_axes):
                 try:
                     # Get current value
@@ -350,6 +300,12 @@ class RCMappingWizard:
                     movement = abs(value - self.base_values[i])
                     self.max_movement[i] = max(self.max_movement[i], movement)
                     
+                    # Track the axis with the most movement for visualization
+                    if movement > max_movement_value:
+                        max_movement_value = movement
+                        max_movement_index = i
+                        max_movement_raw_value = value
+                    
                     # Check for significant movement
                     if movement > 0.5 and self.detected_axis is None:
                         self.detected_axis = i
@@ -367,7 +323,32 @@ class RCMappingWizard:
                             self.axis_labels[i].config(foreground="#FFFFFF")  # White for other axes
                 except Exception as e:
                     self.logger.error("RC", f"Error reading axis {i}: {str(e)}")
-                    
+            
+            # Update the joystick visualizer with the most active axis
+            if max_movement_index >= 0:
+                # For visualization, determine which control we're mapping
+                current_control = self.controls[self.current_control_index]["name"].lower() if self.current_control_index < len(self.controls) else ""
+                
+                # Normalize the value to -1 to 1
+                normalized_value = max_movement_raw_value
+                
+                # Apply inversion if needed
+                invert = getattr(self, "invert_axis", False)
+                if invert:
+                    normalized_value = -normalized_value
+                
+                # For throttle and yaw, use Y axis for throttle, X axis for yaw
+                if current_control == "throttle":
+                    self.joystick_viz.update_position(0, normalized_value)
+                elif current_control == "yaw":
+                    # Invert the X-axis for yaw to match the expected direction
+                    self.joystick_viz.update_position(-normalized_value, 0)
+                # For pitch and roll, use Y axis for pitch, X axis for roll
+                elif current_control == "pitch":
+                    self.joystick_viz.update_position(0, normalized_value)
+                elif current_control == "roll":
+                    self.joystick_viz.update_position(normalized_value, 0)
+                
         except Exception as e:
             self.logger.error("RC", f"Error polling joystick: {str(e)}")
             # Only show error message if it's a new error
@@ -406,6 +387,10 @@ class RCMappingWizard:
         self.next_btn.config(state="disabled")
         self.invert_btn.config(state="disabled")
         self.invert_axis = False
+        
+        # Reset the joystick visualizer
+        if hasattr(self, 'joystick_viz'):
+            self.joystick_viz.update_position(0, 0)
         
     def _confirm_and_next(self):
         """Confirm the current mapping and move to next control"""

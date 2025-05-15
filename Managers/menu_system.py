@@ -70,12 +70,16 @@ class MenuSystem:
         if "bird_speed" not in self.config:
             self.config["bird_speed"] = 1.0
             
+        # Initialize single-axis mode to disabled by default
+        if "single_axis_mode" not in self.config:
+            self.config["single_axis_mode"] = False
+            
         # Set of currently pressed keys for UI control
         self._ui_pressed_keys = set()
 
         # Build and style main window
         self.root = tk.Tk()
-        self.root.title("Disaster Simulation with Drone Navigation v1.3.1")
+        self.root.title("Disaster Simulation with Drone Navigation v1.3.2 - HyperDrive Pulse")
         self.root.geometry("700x900")  # Increased width to ensure all tabs are visible
         self.root.configure(bg="#1a1a1a")  # Dark background
         
@@ -296,6 +300,30 @@ class MenuSystem:
                 upward += sign
             elif direction == 'yaw':
                 yaw += sign
+        
+        # Apply single-axis movement restriction if enabled
+        if self.config.get("single_axis_mode", False):
+            # Determine which input has the largest magnitude
+            max_input = max(abs(forward), abs(sideward), abs(yaw), abs(upward))
+            
+            # Only allow the axis with the largest input, zero out all others
+            if max_input > 0:
+                if abs(forward) == max_input:  # Forward/backward has priority
+                    sideward = 0
+                    upward = 0
+                    yaw = 0
+                elif abs(sideward) == max_input:  # Left/right has priority
+                    forward = 0
+                    upward = 0
+                    yaw = 0
+                elif abs(yaw) == max_input:  # Rotation has priority
+                    forward = 0
+                    sideward = 0
+                    upward = 0
+                elif abs(upward) == max_input:  # Up/down has priority
+                    forward = 0
+                    sideward = 0
+                    yaw = 0
         
         # Get movement parameters from config
         move_step = self.config.get('move_step', 0.2)
@@ -1182,6 +1210,10 @@ class MenuSystem:
                     self._schedule_ui_update()
                 elif not new_val and self._monitoring_active:
                     self._clear_performance_metrics()
+            
+            # Update single-axis mode if needed
+            elif key == "single_axis_mode" and hasattr(self, 'single_axis_mode_var'):
+                self.single_axis_mode_var.set(self.config.get('single_axis_mode', False))
         else:
             # If key is None or unknown, refresh all
             for k, var in self._config_vars.items():
@@ -1190,6 +1222,10 @@ class MenuSystem:
                     var.set(str(val))
                 else:
                     var.set(bool(val))
+                    
+            # Also update single-axis mode if available
+            if hasattr(self, 'single_axis_mode_var'):
+                self.single_axis_mode_var.set(self.config.get('single_axis_mode', False))
 
     def _quit(self):
         """Quit the application with confirmation dialog"""
@@ -1704,7 +1740,7 @@ class MenuSystem:
         version_frame.pack(fill="x", pady=10, padx=15)  # Increased padding
         
         version_info = """
-• Version: HyperDrive Sync v1.3.1
+• Version: HyperDrive Pulse v1.3.2
 • Build: 10.05.2025
         """
         version_label = ttk.Label(
@@ -1715,77 +1751,25 @@ class MenuSystem:
         )
         version_label.pack(fill="x")
         
-        # Keyboard Controls Section with enhanced styling
-        keyboard_frame = ttk.LabelFrame(
-            scrollable_frame, 
-            text="Keyboard Controls", 
-            padding=20,
-            labelanchor="n"
-        )
-        keyboard_frame.pack(fill="x", pady=10, padx=15)  # Increased padding
-        
-        keyboard_info = """
-• There are two ways to control the drone via keyboard:
-  - Terminal Control: Use the terminal to send commands directly to the drone.
-  - UI Control: Use the application interface for keyboard control.
-  
-• Movement Controls (UI Control):
-  - W: Move forward
-  - S: Move backward
-  - A: Move left
-  - D: Move right
-  - Space: Move up
-  - Z: Move down
-  - Q: Rotate counterclockwise
-  - E: Rotate clockwise
-        """
-        keyboard_label = ttk.Label(
-            keyboard_frame, 
-            text=keyboard_info, 
-            justify="left",
-            font=help_content_font
-        )
-        keyboard_label.pack(fill="x")
-        
-        # RC Joystick Controls section
-        joystick_frame = ttk.LabelFrame(
-            scrollable_frame, 
-            text="RC Joystick Controls", 
-            padding=20,
-            labelanchor="n"
-        )
-        joystick_frame.pack(fill="x", pady=10, padx=15)
-        
-        joystick_info = """
-• The application also supports control via an RC joystick. This allows for more intuitive and precise control of the drone's movements.
-• To use the joystick:
-  - Connect your joystick to the computer.
-  - Ensure that the joystick is recognized by the application.
-  - Use the joystick's controls to maneuver the drone in all directions, similar to the keyboard controls.
-• The joystick provides a more tactile experience, making it easier to perform complex maneuvers.
-        """
-        joystick_label = ttk.Label(
-            joystick_frame, 
-            text=joystick_info, 
-            justify="left",
-            font=help_content_font
-        )
-        joystick_label.pack(fill="x")
-        
-        # Scene Tab Section with enhanced styling
+        # Scene Tab Section
         scene_frame = ttk.LabelFrame(
             scrollable_frame, 
-            text="Scene Controls", 
+            text="Scene Tab", 
             padding=20,
             labelanchor="n"
         )
-        scene_frame.pack(fill="x", pady=10, padx=15)  # Increased padding
+        scene_frame.pack(fill="x", pady=10, padx=15)
         
         scene_info = """
-• Create Environment: Generates a new disaster simulation environment
-• Clear Environment: Removes all objects from the current scene
-• Cancel Creating Environment: Stops the environment creation process
-• Progress bar shows creation status with category and element counts
+• Scene Creation Controls:
+  - Create Environment: Generates a new disaster simulation environment with all configured objects
+  - Clear Environment: Removes all objects from the current scene
+  - Cancel Creating Environment: Stops the environment creation process if in progress
+  - Progress bar shows creation status with category and element counts
+
+• Scene Configuration:
+  - Scene settings are controlled in the Config tab
+  - Dynamic objects like birds and falling trees can be adjusted during runtime
         """
         scene_label = ttk.Label(
             scene_frame, 
@@ -1795,14 +1779,52 @@ class MenuSystem:
         )
         scene_label.pack(fill="x")
         
-        # Config Tab Section with enhanced styling
-        config_frame = ttk.LabelFrame(
+        # Controls Tab Section
+        controls_frame = ttk.LabelFrame(
             scrollable_frame, 
-            text="Configuration", 
+            text="Controls Tab", 
             padding=20,
             labelanchor="n"
         )
-        config_frame.pack(fill="x", pady=10, padx=15)  # Increased padding
+        controls_frame.pack(fill="x", pady=10, padx=15)
+        
+        controls_info = """
+• Movement Mode:
+  - Single-Axis Movement: Toggle between multi-directional and single-axis movement
+  - When enabled, restricts movement to one axis at a time
+  - Only the axis with the largest input will be active, all others will be disabled
+  - For example, if you use pitch control, all other controls will be disabled until you release it
+
+• Keyboard Controls:
+  - Movement Speed: Adjust how quickly the drone moves with keyboard input
+  - Rotation Speed: Adjust how quickly the drone rotates with keyboard input
+  - Apply Keyboard Settings: Save changes to keyboard control settings
+
+• RC Controller Settings:
+  - Sensitivity: Adjust overall controller sensitivity (range 0.1-20.0)
+  - Deadzone: Set minimum input threshold to prevent drift
+  - Yaw Sensitivity: Set specific sensitivity for rotation control
+  - Axis Mapping: Configure which joystick axes control which movements
+  - Invert Controls: Toggle direction inversion for each axis
+  - Test Controls: View real-time input values from the controller with visual joystick representation
+  - RC Mapping Wizard: Visual interface for mapping controller axes with real-time feedback
+        """
+        controls_label = ttk.Label(
+            controls_frame, 
+            text=controls_info, 
+            justify="left",
+            font=help_content_font
+        )
+        controls_label.pack(fill="x")
+        
+        # Config Tab Section
+        config_frame = ttk.LabelFrame(
+            scrollable_frame, 
+            text="Config Tab", 
+            padding=20,
+            labelanchor="n"
+        )
+        config_frame.pack(fill="x", pady=10, padx=15)
         
         config_info = """
 • Dynamic Objects:
@@ -1819,12 +1841,17 @@ class MenuSystem:
   - Area Size: Sets the overall simulation area dimensions
 
 • Simulation Settings:
-  - Adjust various parameters to customize the simulation behavior
-  - Changes are applied when you click "Apply Changes"
+  - Victim Count: Number of victims to place in the scene
+  - Drone Speed: Maximum velocity of the drone
+  - Move Step: Distance increment per movement command
+  - Rotate Step: Angle increment per rotation command
+  - Enable Collisions: Toggle collision detection
+  - Enable Physics: Toggle physics simulation
+  - Apply Changes: Save all configuration changes
 
 • Save/Load Settings:
-  - Save your current configuration to a file
-  - Load previously saved configurations
+  - Save Settings: Save your current configuration to a file
+  - Load Settings: Load previously saved configurations
         """
         config_label = ttk.Label(
             config_frame, 
@@ -1834,14 +1861,14 @@ class MenuSystem:
         )
         config_label.pack(fill="x")
         
-        # Status Tab Section with enhanced styling
+        # Status Tab Section
         status_frame = ttk.LabelFrame(
             scrollable_frame, 
-            text="Status & Victim Detection", 
+            text="Status Tab", 
             padding=20,
             labelanchor="n"
         )
-        status_frame.pack(fill="x", pady=10, padx=15)  # Increased padding
+        status_frame.pack(fill="x", pady=10, padx=15)
         
         status_info = """
 • Control Status: Shows whether keyboard controls are active
@@ -1868,23 +1895,31 @@ class MenuSystem:
         )
         status_label.pack(fill="x")
         
-        # Performance Monitor Tab with enhanced styling
+        # Monitor Tab Section
         monitor_frame = ttk.LabelFrame(
             scrollable_frame, 
-            text="Performance Monitoring", 
+            text="Monitor Tab", 
             padding=20,
             labelanchor="n"
         )
-        monitor_frame.pack(fill="x", pady=10, padx=15)  # Increased padding
+        monitor_frame.pack(fill="x", pady=10, padx=15)
         
         monitor_info = """
+• Performance Monitoring Toggle:
+  - Enable/disable real-time performance tracking
+  - When disabled, conserves CPU resources
+
 • System Information:
-  - Shows OS version, Python version, and CPU core count
+  - OS Version: Shows operating system version
+  - Python Version: Shows Python interpreter version
+  - CPU Cores: Number of processor cores available
 
 • Performance Metrics:
   - FPS: Frames per second of the application
-  - Memory Usage: Application memory consumption
-  - CPU Usage: Processor utilization
+  - Memory Usage: Application memory consumption in MB
+  - Memory %: Percentage of system memory in use
+  - CPU Usage: Processor utilization percentage
+  - CPU Frequency: Current processor clock speed
   - Active Threads: Number of running threads
 
 • Simulation Statistics:
@@ -1902,23 +1937,32 @@ class MenuSystem:
         )
         monitor_label.pack(fill="x")
 
-        # Dataset Tab with enhanced styling
+        # Dataset Tab Section
         dataset_frame = ttk.LabelFrame(
             scrollable_frame, 
-            text="Dataset Collection", 
+            text="Dataset Tab", 
             padding=20,
             labelanchor="n"
         )
-        dataset_frame.pack(fill="x", pady=10, padx=15)  # Increased padding
+        dataset_frame.pack(fill="x", pady=10, padx=15)
         
         dataset_info = """
 • Dataset Directory:
   - View current dataset storage location
-  - Change the directory where captures are saved
+  - Select Directory: Change the directory where captures are saved
+  - Uses timestamped subfolders for organization
 
-• Dataset Status:
-  - View capture statistics and progress
-  - Monitor batch saves and total image count
+• Dataset Collection:
+  - Automatically captures depth images during simulation
+  - Organizes data into train/val/test splits
+  - Stores depth maps, poses, and victim direction vectors
+  - Includes distance-to-victim measurements
+
+• Configuration Saving:
+  - Application automatically saves configuration to "config" subfolder
+  - Configuration is saved at startup and whenever settings are changed
+  - Save Configuration As: Save current settings with a custom name
+  - Configuration files are stored in the dataset's config subfolder
         """
         dataset_label = ttk.Label(
             dataset_frame, 
@@ -1928,14 +1972,14 @@ class MenuSystem:
         )
         dataset_label.pack(fill="x")
 
-        # Logging Tab with enhanced styling
+        # Logging Tab Section
         logging_frame = ttk.LabelFrame(
             scrollable_frame, 
-            text="Logging Configuration", 
+            text="Logging Tab", 
             padding=20,
             labelanchor="n"
         )
-        logging_frame.pack(fill="x", pady=(10, 20), padx=15)  # Increased padding
+        logging_frame.pack(fill="x", pady=10, padx=15)
         
         logging_info = """
 • Log Level:
@@ -1953,9 +1997,11 @@ class MenuSystem:
 • File Logging:
   - Enable/disable logging to file
   - Open logs directory to view saved logs
+  - Logs are stored with timestamps for reference
 
 • Verbose Mode:
   - Enable for maximum detail in debugging
+  - Affects console output and file logging
         """
         logging_label = ttk.Label(
             logging_frame, 
@@ -1965,20 +2011,96 @@ class MenuSystem:
         )
         logging_label.pack(fill="x")
         
-        # Keyboard Shortcuts with enhanced styling
+        # Keyboard Controls Section
+        keyboard_frame = ttk.LabelFrame(
+            scrollable_frame, 
+            text="Keyboard Controls", 
+            padding=20,
+            labelanchor="n"
+        )
+        keyboard_frame.pack(fill="x", pady=10, padx=15)
+        
+        keyboard_info = """
+• Movement Controls:
+  - W: Move forward
+  - S: Move backward
+  - A: Move left
+  - D: Move right
+  - Space: Move up
+  - Z: Move down
+  - Q: Rotate counterclockwise
+  - E: Rotate clockwise
+
+• Movement Modes:
+  - Multi-directional: Default mode allowing movement in multiple directions at once
+  - Single-axis: Restricts movement to one axis at a time:
+    * Only the axis with the largest input will be active
+    * All other axes will be disabled until you release the active axis
+    * This creates clean, isolated movements for dataset collection
+        """
+        keyboard_label = ttk.Label(
+            keyboard_frame, 
+            text=keyboard_info, 
+            justify="left",
+            font=help_content_font
+        )
+        keyboard_label.pack(fill="x")
+        
+        # RC Joystick Controls section
+        joystick_frame = ttk.LabelFrame(
+            scrollable_frame, 
+            text="RC Joystick Controls", 
+            padding=20,
+            labelanchor="n"
+        )
+        joystick_frame.pack(fill="x", pady=10, padx=15)
+        
+        joystick_info = """
+• Controller Setup:
+  - Connect your joystick to the computer before starting the application
+  - Select RC Controller at startup when prompted
+  - Configure mappings in the Controls tab if needed
+
+• Default Mappings:
+  - Left stick X: Yaw (rotation)
+  - Left stick Y: Throttle (up/down movement)
+  - Right stick X: Roll (left/right movement)
+  - Right stick Y: Pitch (forward/backward movement)
+
+• Sensitivity Settings:
+  - Main sensitivity (0.1-20.0): Adjusts overall responsiveness
+  - Deadzone: Prevents drift when sticks are near center
+  - Yaw sensitivity: Specifically adjusts rotation speed
+
+• Visual Feedback:
+  - Test window shows real-time joystick position with visual representations
+  - Pitch/Roll visualizer shows forward/backward and left/right movement
+  - Throttle/Yaw visualizer shows up/down movement and rotation
+  - Progress bars show raw axis values for all detected joystick axes
+        """
+        joystick_label = ttk.Label(
+            joystick_frame, 
+            text=joystick_info, 
+            justify="left",
+            font=help_content_font
+        )
+        joystick_label.pack(fill="x")
+        
+        # Keyboard Shortcuts Section
         shortcuts_frame = ttk.LabelFrame(
             scrollable_frame, 
             text="Keyboard Shortcuts", 
             padding=20,
             labelanchor="n"
         )
-        shortcuts_frame.pack(fill="x", pady=(10, 20), padx=15)  # Increased padding
+        shortcuts_frame.pack(fill="x", pady=(10, 20), padx=15)
         
         shortcuts_info = """
-• Enter: Apply changes in configuration fields
-• Ctrl+S: Save current configuration
-• Ctrl+O: Load saved configuration
-• Esc: Cancel ongoing operations
+• General Shortcuts:
+  - Enter: Apply changes in configuration fields
+  - Ctrl+S: Save current configuration
+  - Ctrl+O: Load saved configuration
+  - Esc: Cancel ongoing operations
 
 • Tab Navigation:
   - Click tabs to switch between different sections
@@ -2426,9 +2548,128 @@ class MenuSystem:
                                  command=self._select_dataset_directory)
         select_dir_btn.pack(fill="x")
         
+        # Configuration Section
+        config_frame = ttk.LabelFrame(parent, text="Configuration", padding=15, labelanchor="n")
+        config_frame.pack(fill="x", pady=10, padx=5)
+        
+        # Description text
+        ttk.Label(config_frame, text="The application automatically saves configuration to a 'config' subfolder in the dataset directory when starting and when settings are changed.", 
+                wraplength=500, justify="left").pack(pady=5)
+        
+        # Manual save button
+        save_config_btn = ttk.Button(config_frame, 
+                                  text="Save Configuration As...", 
+                                  command=self._save_config_to_dataset)
+        save_config_btn.pack(fill="x", pady=10)
+        
+        # Status label for configuration saving
+        self.config_status_var = tk.StringVar(value="")
+        config_status_label = ttk.Label(config_frame, textvariable=self.config_status_var, 
+                                     font=("Segoe UI", 10, "italic"))
+        config_status_label.pack(pady=5)
+        
         # Subscribe to dataset events - keep only those we still need
         EM.subscribe('dataset/batch/saved', self._on_batch_saved)
         EM.subscribe('dataset/config/updated', self._on_dataset_config_updated)
+    
+    def _save_config_to_dataset(self):
+        """Save the current configuration to the dataset directory with a custom name"""
+        try:
+            # Get depth collector
+            depth_collector = SC.get_depth_collector()
+            if not depth_collector:
+                self.config_status_var.set("No depth collector available. Please create a scene first.")
+                self.root.after(3000, lambda: self.config_status_var.set(""))
+                return
+            
+            # Create a dialog to get the custom name
+            dialog = tk.Toplevel(self.root)
+            dialog.title("Save Configuration As")
+            dialog.geometry("450x390")  
+            dialog.transient(self.root)
+            dialog.grab_set()  # Modal
+            
+            # Set minimum size to match current size
+            dialog.minsize(450, 390)
+            
+            # Center on parent
+            dialog.update_idletasks()
+            x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (dialog.winfo_width() // 2)
+            y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (dialog.winfo_height() // 2)
+            dialog.geometry(f"+{x}+{y}")
+            
+            # Content
+            content_frame = ttk.Frame(dialog, padding=35)  # Increased padding from 25 to 35
+            content_frame.pack(fill=tk.BOTH, expand=True)
+            
+            # Description explaining the purpose
+            ttk.Label(
+                content_frame,
+                text="Save your current configuration settings with a custom name for future reference. It will be saved to the dataset directory.",
+                font=("Segoe UI", 11),  # Increased font size from 10 to 11
+                wraplength=350,
+                justify="center"
+            ).pack(pady=(0, 20))  # Increased bottom padding from 10 to 20
+            
+            ttk.Label(
+                content_frame, 
+                text="Enter a name for this configuration:",
+                font=("Segoe UI", 12)  # Increased font size from 11 to 12
+            ).pack(pady=(0, 20))  # Increased bottom padding from 15 to 20
+            
+            # Entry for custom name
+            name_var = tk.StringVar(value="config")
+            name_entry = ttk.Entry(content_frame, textvariable=name_var, width=30, font=("Segoe UI", 12))  # Increased font size from 11 to 12
+            name_entry.pack(fill=tk.X, pady=20, ipady=5)  # Increased padding from 15 to 20 and ipady from 3 to 5
+            name_entry.focus_set()  # Set focus to the entry
+            
+            # Help text
+            ttk.Label(
+                content_frame,
+                text="The file will be saved in the config subfolder of your dataset directory.",
+                font=("Segoe UI", 10),  # Increased font size from 9 to 10
+                foreground="#666666"
+            ).pack(pady=(0, 25))  # Increased bottom padding from 15 to 25
+            
+            # Buttons
+            button_frame = ttk.Frame(content_frame)
+            button_frame.pack(fill=tk.X, pady=20)  # Increased padding from 15 to 20
+            
+            cancel_btn = ttk.Button(
+                button_frame, 
+                text="Cancel", 
+                command=dialog.destroy
+            )
+            cancel_btn.pack(side=tk.LEFT, padx=10, expand=True, fill=tk.X, ipady=4)
+            
+            save_btn = ttk.Button(
+                button_frame, 
+                text="Save", 
+                style="Apply.TButton",
+                command=lambda: self._save_config_with_name(dialog, name_var.get(), depth_collector)
+            )
+            save_btn.pack(side=tk.RIGHT, padx=10, expand=True, fill=tk.X, ipady=4)  
+            
+            # Bind Enter key to save button
+            dialog.bind("<Return>", lambda event: save_btn.invoke())
+            
+        except Exception as e:
+            self.logger.error("MenuSystem", f"Error creating save dialog: {e}")
+            self.config_status_var.set(f"Error: {str(e)}")
+            self.root.after(3000, lambda: self.config_status_var.set(""))
+    
+    def _save_config_with_name(self, dialog, name, depth_collector):
+        """Save the configuration with the provided name"""
+        dialog.destroy()  # Close the dialog
+        
+        # Save configuration with custom name
+        filepath = depth_collector.save_config_to_json(self.config, name)
+        if filepath:
+            self.config_status_var.set(f"Configuration saved to: {os.path.basename(filepath)}")
+            self.root.after(3000, lambda: self.config_status_var.set(""))
+        else:
+            self.config_status_var.set("Error saving configuration")
+            self.root.after(3000, lambda: self.config_status_var.set(""))
     
     def _select_dataset_directory(self):
         """Select a directory for dataset storage"""
@@ -3068,6 +3309,47 @@ class MenuSystem:
         scrollbar.pack(side="right", fill="y", padx=(5, 0))  # Add padding on the left of scrollbar
         canvas.pack(side="left", fill="both", expand=True, padx=(0, 5))  # Add padding on the right of canvas
         
+        # Movement Mode Section
+        movement_mode_frame = ttk.LabelFrame(scrollable_frame, text="Movement Mode", padding=15, labelanchor="n")
+        movement_mode_frame.pack(fill="x", pady=10, padx=5)
+        
+        # Create a variable to track the movement mode
+        self.single_axis_mode_var = tk.BooleanVar(value=self.config.get("single_axis_mode", False))
+        
+        # Create a checkbox for single-axis mode
+        single_axis_check = ttk.Checkbutton(
+            movement_mode_frame,
+            text="Single-Axis Movement Mode",
+            variable=self.single_axis_mode_var,
+            command=self._toggle_single_axis_mode
+        )
+        single_axis_check.pack(anchor="w", pady=5)
+        
+        # Add description text
+        description_text = """When enabled, the drone will only move along one axis at a time.
+This is useful for dataset collection where you want clean, isolated movements.
+The axis with the largest input will be active, and all others will be disabled.
+For example:
+- If you use the pitch control (W/S), all other controls will be disabled
+- If you then use the yaw control (Q/E), the pitch control will stop and only yaw will be active
+- Only one movement axis can be active at any time"""
+        
+        ttk.Label(
+            movement_mode_frame,
+            text=description_text,
+            justify="left",
+            wraplength=500
+        ).pack(padx=10, pady=5, anchor="w")
+        
+        # Apply movement mode button
+        apply_mode_btn = ttk.Button(
+            movement_mode_frame,
+            text="Apply Movement Mode",
+            command=self._apply_movement_mode,
+            style="Apply.TButton"
+        )
+        apply_mode_btn.pack(pady=10)
+        
         # Keyboard Controls Section
         keyboard_frame = ttk.LabelFrame(scrollable_frame, text="Keyboard Controls", padding=15, labelanchor="n")
         keyboard_frame.pack(fill="x", pady=10, padx=5)
@@ -3204,4 +3486,30 @@ class MenuSystem:
             self.status_label.configure(text=f"Error updating keyboard settings: {e}")
             self.root.after(2000, lambda: self.status_label.configure(text=""))
             self.logger.error("MenuSystem", f"Error updating keyboard settings: {e}")
+
+    def _toggle_single_axis_mode(self):
+        """Toggle single-axis mode on or off from the UI."""
+        self.config["single_axis_mode"] = self.single_axis_mode_var.get()
+        self.logger.info("MenuSystem", f"Single-axis mode {'enabled' if self.single_axis_mode_var.get() else 'disabled'}")
+        self.status_label.configure(text=f"Single-axis mode {'enabled' if self.single_axis_mode_var.get() else 'disabled'}")
+        self.root.after(2000, lambda: self.status_label.configure(text=""))
+
+    def _apply_movement_mode(self):
+        """Apply movement mode settings"""
+        try:
+            # Update config with current UI values
+            self.config["single_axis_mode"] = self.single_axis_mode_var.get()
+            
+            # Publish config update event
+            EM.publish('config/updated', 'single_axis_mode')
+            
+            # Show confirmation via status label
+            self.status_label.configure(text=f"Movement mode updated: {'Single-axis' if self.single_axis_mode_var.get() else 'Multi-directional'}")
+            self.root.after(2000, lambda: self.status_label.configure(text=""))
+            
+            self.logger.info("MenuSystem", f"Updated movement mode: single_axis_mode={self.config['single_axis_mode']}")
+        except Exception as e:
+            self.status_label.configure(text=f"Error updating movement mode: {e}")
+            self.root.after(2000, lambda: self.status_label.configure(text=""))
+            self.logger.error("MenuSystem", f"Error updating movement mode: {e}")
 

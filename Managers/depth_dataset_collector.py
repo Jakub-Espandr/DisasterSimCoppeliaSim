@@ -4,6 +4,8 @@ import queue
 import numpy as np
 import math
 import datetime
+import json
+import time
 
 from Utils.capture_utils import capture_depth, capture_pose, capture_distance_to_victim
 from Utils.save_utils import save_batch_npz
@@ -164,7 +166,8 @@ class DepthDatasetCollector:
         self.train_folder = os.path.join(self.base_folder, "train")
         self.val_folder   = os.path.join(self.base_folder, "val")
         self.test_folder  = os.path.join(self.base_folder, "test")
-        for folder in [self.base_folder, self.train_folder, self.val_folder, self.test_folder]:
+        self.config_folder = os.path.join(self.base_folder, "config")
+        for folder in [self.base_folder, self.train_folder, self.val_folder, self.test_folder, self.config_folder]:
             os.makedirs(folder, exist_ok=True)
         if self.verbose:
             self.logger.debug_at_level(DEBUG_L1, "DepthCollector", f"Created dataset directories in {self.base_folder}")
@@ -508,3 +511,39 @@ class DepthDatasetCollector:
         # Update verbose flag when configuration changes
         config = get_default_config()
         self.verbose = config.get('verbose', False)
+
+    def save_config_to_json(self, config, custom_name=None):
+        """
+        Save the current configuration to a JSON file in the config subfolder.
+        
+        Args:
+            config (dict): The configuration dictionary to save
+            custom_name (str, optional): Custom name for the configuration file
+        """
+        try:
+            # Create a timestamp for the filename
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            
+            # Use custom name if provided, otherwise use timestamp
+            if custom_name:
+                # Make sure the filename is valid by removing special characters
+                custom_name = ''.join(c for c in custom_name if c.isalnum() or c in '._- ')
+                # Check if the name already has a .json extension
+                if not custom_name.lower().endswith('.json'):
+                    filename = f"{custom_name}.json"
+                else:
+                    filename = custom_name
+            else:
+                filename = f"config_{timestamp}.json"
+                
+            filepath = os.path.join(self.config_folder, filename)
+            
+            # Save the configuration to JSON file
+            with open(filepath, 'w') as f:
+                json.dump(config, f, indent=4)
+            
+            self.logger.info("DepthCollector", f"Configuration saved to {filepath}")
+            return filepath
+        except Exception as e:
+            self.logger.error("DepthCollector", f"Error saving configuration: {e}")
+            return None

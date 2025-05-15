@@ -7,6 +7,8 @@ import threading
 from Controls.rc_mapping_wizard import RCMappingWizard
 from Utils.log_utils import get_logger, DEBUG_L1, DEBUG_L2, DEBUG_L3
 from Core.event_manager import EventManager
+import math
+from Controls.joystick_visualizer import JoystickVisualizer
 
 EM = EventManager.get_instance()
 
@@ -54,7 +56,7 @@ class RCControllerSettings:
             
             # Load or initialize sensitivity/deadzone settings
             if "rc_sensitivity" not in self.config:
-                self.config["rc_sensitivity"] = 1.0
+                self.config["rc_sensitivity"] = 1.0  # Default to 1.0, which is within the new range 0.1-20.0
             if "rc_deadzone" not in self.config:
                 self.config["rc_deadzone"] = 0.1
             if "rc_yaw_sensitivity" not in self.config:
@@ -96,8 +98,8 @@ class RCControllerSettings:
         self.sensitivity_var = tk.DoubleVar(value=self.config.get("rc_sensitivity", 1.0))
         sensitivity_scale = ttk.Scale(
             sens_frame,
-            from_=1.0,
-            to=50.0,
+            from_=0.1,
+            to=20.0,
             orient="horizontal",
             variable=self.sensitivity_var,
             command=self._update_sensitivity_label
@@ -261,8 +263,11 @@ class RCControllerSettings:
             # Use integer format for values over 10, round to one decimal for smaller values
             if val >= 10:
                 self.sensitivity_label.config(text=f"{round(val)}")
-            else:
+            elif val >= 1:
                 self.sensitivity_label.config(text=f"{round(val, 1)}")
+            else:
+                # For values less than 1, use two decimal places
+                self.sensitivity_label.config(text=f"{round(val, 2)}")
         except:
             pass
     
@@ -506,8 +511,8 @@ class RCControllerSettings:
             # Create test window
             test_window = tk.Toplevel(self.parent)
             test_window.title("RC Controller Test")
-            test_window.geometry("500x530")  # Increased height
-            test_window.minsize(500, 530)    # Set minimum size
+            test_window.geometry("600x800")  # Increased width and height for better visibility
+            test_window.minsize(600, 800)    # Set minimum size
             test_window.transient(self.parent.winfo_toplevel())
             
             # Apply dark theme to the window
@@ -620,6 +625,42 @@ class RCControllerSettings:
                 
                 axis_values.append({"var": value_var, "bar": bar})
             
+            # Add joystick visualizer
+            viz_frame = ttk.LabelFrame(test_window, text="Joystick Visualization", padding=10, style="Dark.TLabelframe")
+            viz_frame.pack(fill="both", expand=True, pady=10, padx=10)
+            
+            # Create a frame to hold the visualizers side by side
+            viz_container = ttk.Frame(viz_frame, style="Dark.TFrame")
+            viz_container.pack(fill="both", expand=True)
+            
+            # Left side - Throttle/Yaw visualizer
+            left_frame = ttk.Frame(viz_container, style="Dark.TFrame")
+            left_frame.pack(side="left", fill="both", expand=True, padx=5)
+            
+            ttk.Label(
+                left_frame,
+                text="Throttle/Yaw",
+                font=("Segoe UI", 11, "bold"),
+                style="Dark.TLabel"
+            ).pack(anchor="center", pady=5)
+            
+            throttle_yaw_viz = JoystickVisualizer(left_frame, width=150, height=150)
+            throttle_yaw_viz.pack(anchor="center", pady=5)
+
+            # Right side - Pitch/Roll visualizer
+            right_frame = ttk.Frame(viz_container, style="Dark.TFrame")
+            right_frame.pack(side="right", fill="both", expand=True, padx=5)
+            
+            ttk.Label(
+                right_frame,
+                text="Pitch/Roll",
+                font=("Segoe UI", 11, "bold"),
+                style="Dark.TLabel"
+            ).pack(anchor="center", pady=5)
+            
+            pitch_roll_viz = JoystickVisualizer(right_frame, width=150, height=150)
+            pitch_roll_viz.pack(anchor="center", pady=5)
+            
             # Close button
             close_btn = ttk.Button(
                 test_window,
@@ -674,6 +715,11 @@ class RCControllerSettings:
                                 axis_info["var"].set("ERROR")
                     
                     # Update mapped controls
+                    pitch_value = 0.0
+                    roll_value = 0.0
+                    throttle_value = 0.0
+                    yaw_value = 0.0
+                    
                     for ctrl_id, ctrl in controls.items():
                         mapping = self.mappings.get(ctrl_id, {})
                         axis = mapping.get("axis")
@@ -700,6 +746,16 @@ class RCControllerSettings:
                                 # Clamp to -1 to 1
                                 value = max(-1.0, min(1.0, value))
                                 
+                                # Store values for visualizers
+                                if ctrl_id == "pitch":
+                                    pitch_value = value
+                                elif ctrl_id == "roll":
+                                    roll_value = value
+                                elif ctrl_id == "throttle":
+                                    throttle_value = value
+                                elif ctrl_id == "yaw":
+                                    yaw_value = value
+                                
                                 # Update UI
                                 ctrl["value_var"].set(f"{value:.2f}")
                                 bar_value = int((value + 1.0) * 100)  # Convert -1..1 to 0..200
@@ -709,6 +765,11 @@ class RCControllerSettings:
                                 ctrl["value_var"].set("ERROR")
                         else:
                             ctrl["value_var"].set("N/A")
+                    
+                    # Update visualizers
+                    pitch_roll_viz.update_position(roll_value, pitch_value)
+                    throttle_yaw_viz.update_position(-yaw_value, throttle_value)
+                    
                 except Exception as e:
                     self.logger.error("RCSettings", f"Error updating RC test display: {str(e)}")
                 

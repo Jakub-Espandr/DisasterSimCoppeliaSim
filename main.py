@@ -124,7 +124,7 @@ def main():
         logger.info("Main", "RC controller process started")
 
         # Immediately send all RC-related settings to the controller process
-        for key in ['rc_sensitivity', 'rc_deadzone', 'rc_yaw_sensitivity', 'rc_mappings']:
+        for key in ['rc_sensitivity', 'rc_deadzone', 'rc_yaw_sensitivity', 'rc_mappings', 'single_axis_mode']:
             if key in config:
                 value = config[key]
                 parent_conn.send({key: value})
@@ -148,6 +148,10 @@ def main():
                 mappings = config.get('rc_mappings', {})
                 parent_conn.send({'rc_mappings': mappings})
                 logger.debug_at_level(DEBUG_L2, "Main", f"Sent RC mappings update: {mappings}")
+            elif key == 'single_axis_mode':
+                single_axis_mode = config.get('single_axis_mode', False)
+                parent_conn.send({'single_axis_mode': single_axis_mode})
+                logger.debug_at_level(DEBUG_L2, "Main", f"Sent single-axis mode update: {single_axis_mode}")
         EM.subscribe('config/updated', on_config_updated)
     else:
         register_drone_keyboard_mapper(config)
@@ -174,6 +178,10 @@ def main():
     )
     logger.info("Main", "Depth dataset collector initialized")
     
+    # Save initial configuration to JSON
+    depth_collector.save_config_to_json(config, "initial_config")
+    logger.info("Main", "Initial configuration saved to dataset directory")
+    
     # Store reference to depth_collector in SimConnection for access from UI
     SC.set_depth_collector(depth_collector)
 
@@ -181,6 +189,14 @@ def main():
     logger.info("Main", "Initializing menu system...")
     menu_system = MenuSystem(config, sim_command_queue)
     logger.info("Main", "Menu system initialized")
+
+    # Subscribe to config updates to save config to JSON when updated
+    def on_config_save(key):
+        if depth_collector:
+            depth_collector.save_config_to_json(config, f"update_{key}")
+            logger.debug_at_level(DEBUG_L2, "Main", f"Configuration saved after update to {key}")
+    
+    EM.subscribe('config/updated', on_config_save)
 
     last_time = time.time()
     frame_count = 0

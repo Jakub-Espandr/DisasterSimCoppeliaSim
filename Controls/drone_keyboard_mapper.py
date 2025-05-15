@@ -63,6 +63,30 @@ def register_drone_keyboard_mapper(config):
             elif direction == 'yaw':
                 yaw += sign
 
+        # Apply single-axis movement restriction if enabled
+        if config.get("single_axis_mode", False):
+            # Determine which input has the largest magnitude
+            max_input = max(abs(forward), abs(sideward), abs(yaw), abs(upward))
+            
+            # Only allow the axis with the largest input, zero out all others
+            if max_input > 0:
+                if abs(forward) == max_input:  # Forward/backward has priority
+                    sideward = 0
+                    upward = 0
+                    yaw = 0
+                elif abs(sideward) == max_input:  # Left/right has priority
+                    forward = 0
+                    upward = 0
+                    yaw = 0
+                elif abs(yaw) == max_input:  # Rotation has priority
+                    forward = 0
+                    sideward = 0
+                    upward = 0
+                elif abs(upward) == max_input:  # Up/down has priority
+                    forward = 0
+                    sideward = 0
+                    yaw = 0
+
         move_step = config.get('move_step', 0.2)
         rotate_step = config.get('rotate_step_deg', 15.0)
         import math

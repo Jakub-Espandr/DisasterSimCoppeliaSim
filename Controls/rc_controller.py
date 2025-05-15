@@ -10,150 +10,146 @@ EM = EventManager.get_instance()
 logger = get_logger()
 
 def rc_loop(config, conn):
+    """
+    Main loop for RC controller input processing.
+    Runs in a separate process.
+    """
+    # Initialize pygame
     pygame.init()
     pygame.joystick.init()
-
-    if pygame.joystick.get_count() == 0:
-        logger.warning("RC", "No joystick detected.")
-        return
-
-    joystick = pygame.joystick.Joystick(0)
-    joystick.init()
-    logger.info("RC", f"Using: {joystick.get_name()}")
-
-    move_step = config.get('move_step', 0.2)
-    rotate_step = config.get('rotate_step_deg', 15.0)
-    sensitivity = config.get('rc_sensitivity', 10.0)
+    
+    # Initialize variables
+    sensitivity = config.get('rc_sensitivity', 1.0)  # Default to 1.0
     deadzone_threshold = config.get('rc_deadzone', 0.1)
-    yaw_sensitivity = config.get('rc_yaw_sensitivity', 0.15)  # Default 15%
+    yaw_sensitivity = config.get('rc_yaw_sensitivity', 0.15)
+    mappings = config.get('rc_mappings', {})
+    single_axis_mode = config.get('single_axis_mode', False)
     
-    # Default mappings (can be overridden by config)
-    mappings = {
-        "pitch": {"axis": 1, "invert": False},
-        "roll": {"axis": 0, "invert": False},
-        "throttle": {"axis": 2, "invert": False},
-        "yaw": {"axis": 3, "invert": False}
-    }
-    
-    # Load custom mappings if available
-    if "rc_mappings" in config and config["rc_mappings"]:
-        logger.info("RC", f"Using custom mappings: {config['rc_mappings']}")
-        mappings.update(config["rc_mappings"])
-    else:
-        logger.info("RC", "Using default controller mappings")
-
-    # Optimized deadzone function - more efficient by avoiding redundant calculations
-    def deadzone(val, threshold=deadzone_threshold):
-        if abs(val) <= threshold:
-            return 0.0
-        # Scale the value to maintain smooth range after deadzone
-        scaled_val = (val - (threshold if val > 0 else -threshold)) / (1.0 - threshold)
-        return scaled_val
-
-    # Log the initial controller configuration
-    logger.info("RC", f"Controller started with sensitivity: {sensitivity}, deadzone: {deadzone_threshold}, yaw sensitivity: {yaw_sensitivity}")
-    logger.info("RC", f"Mappings: pitch={mappings['pitch']}, roll={mappings['roll']}, throttle={mappings['throttle']}, yaw={mappings['yaw']}")
-
     # Variables to track last sent values to minimize unnecessary updates
-    last_sideward = last_forward = last_upward = last_yaw_rate = 0.0
+    last_x_axis = last_y_axis = last_z_axis = last_yaw = 0.0
     
     # Throttle update rate - controls how many position updates to skip
     update_counter = 0
-    update_every = 1 # Only send every nth update
+    update_every = 1  # Only send every nth update
     
     # Timestamp tracking for adaptive timing
     last_time = time.time()
-    frame_time_avg = 0.01 # Initialize with a reasonable value
-
-    while True:
+    frame_time_avg = 0.01  # Initialize with a reasonable value
+    
+    # Try to initialize joystick
+    try:
+        if pygame.joystick.get_count() == 0:
+            logger.warning("RC", "No joystick detected.")
+            return
+            
+        joystick = pygame.joystick.Joystick(0)
+        joystick.init()
+        logger.info("RC", f"Using: {joystick.get_name()}")
+    except pygame.error:
+        logger.error("RC", "Failed to initialize joystick")
+        return
+    
+    # Log the initial controller configuration
+    logger.info("RC", f"Controller started with sensitivity: {sensitivity}, deadzone: {deadzone_threshold}, yaw sensitivity: {yaw_sensitivity}")
+    
+    running = True
+    while running:
         try:
-            # Check for config updates from the pipe
+            # Start timing this frame's processing
+            frame_start = time.time()
+            
+            # Process pygame events
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+            
+            # Check for config updates from parent process
             if conn.poll():
                 data = conn.recv()
                 if isinstance(data, dict):
-                    if 'rc_sensitivity' in data:
-                        sensitivity = data['rc_sensitivity']
-                        logger.info("RC", f"Sensitivity updated to: {sensitivity}")
-                    if 'rc_deadzone' in data:
-                        deadzone_threshold = data['rc_deadzone']
-                        logger.info("RC", f"Deadzone updated to: {deadzone_threshold}")
-                    if 'rc_yaw_sensitivity' in data:
-                        yaw_sensitivity = data['rc_yaw_sensitivity']
-                        logger.info("RC", f"Yaw sensitivity updated to: {yaw_sensitivity}")
-                    if 'rc_mappings' in data and data['rc_mappings']:
-                        mappings.update(data['rc_mappings'])
-                        logger.info("RC", f"Mappings updated: {mappings}")
+                    for key, value in data.items():
+                        if key == 'rc_sensitivity':
+                            sensitivity = value
+                            logger.info("RC", f"Sensitivity updated to: {sensitivity}")
+                        elif key == 'rc_deadzone':
+                            deadzone_threshold = value
+                            logger.info("RC", f"Deadzone updated to: {deadzone_threshold}")
+                        elif key == 'rc_yaw_sensitivity':
+                            yaw_sensitivity = value
+                            logger.info("RC", f"Yaw sensitivity updated to: {yaw_sensitivity}")
+                        elif key == 'rc_mappings':
+                            mappings = value
+                            logger.info("RC", f"Mappings updated: {mappings}")
+                        elif key == 'single_axis_mode':
+                            single_axis_mode = value
+                            logger.info("RC", f"Single-axis mode updated to: {single_axis_mode}")
                     continue
-
-            # Start timing this frame's processing
-            frame_start = time.time()
-            pygame.event.pump()
             
-            # Get axis values based on mappings
-            pitch_map = mappings.get('pitch', {"axis": 1, "invert": True})
-            roll_map = mappings.get('roll', {"axis": 0, "invert": False})
-            throttle_map = mappings.get('throttle', {"axis": 2, "invert": False})
-            yaw_map = mappings.get('yaw', {"axis": 3, "invert": False})
-            
-            # Make sure axis values are valid
-            num_axes = joystick.get_numaxes()
-            
-            # Read pitch
-            if pitch_map["axis"] < num_axes:
-                pitch = joystick.get_axis(pitch_map["axis"])
-                if pitch_map.get("invert", False):
-                    pitch = -pitch
-            else:
-                pitch = 0.0
+            # Get joystick inputs with proper error handling
+            try:
+                # Get axis values with deadzone applied
+                x_axis = get_axis_value(joystick, mappings.get('roll', {}).get('axis', 0), 
+                                       deadzone_threshold, mappings.get('roll', {}).get('invert', False))
+                y_axis = get_axis_value(joystick, mappings.get('pitch', {}).get('axis', 1), 
+                                       deadzone_threshold, mappings.get('pitch', {}).get('invert', False))
+                z_axis = get_axis_value(joystick, mappings.get('throttle', {}).get('axis', 2), 
+                                       deadzone_threshold, mappings.get('throttle', {}).get('invert', False))
+                yaw = get_axis_value(joystick, mappings.get('yaw', {}).get('axis', 3), 
+                                    deadzone_threshold, mappings.get('yaw', {}).get('invert', False))
                 
-            # Read roll
-            if roll_map["axis"] < num_axes:
-                roll = joystick.get_axis(roll_map["axis"])
-                if roll_map.get("invert", False):
-                    roll = -roll
-            else:
-                roll = 0.0
+                # Apply sensitivity
+                x_axis *= sensitivity
+                y_axis *= sensitivity
+                z_axis *= sensitivity
+                yaw *= yaw_sensitivity
                 
-            # Read throttle
-            if throttle_map["axis"] < num_axes:
-                throttle = joystick.get_axis(throttle_map["axis"])
-                if throttle_map.get("invert", False):
-                    throttle = -throttle
-            else:
-                throttle = 0.0
+                # Apply single-axis movement restriction if enabled
+                if single_axis_mode:
+                    # Determine which axis has the largest input (absolute value)
+                    max_input = max(abs(y_axis), abs(x_axis), abs(yaw), abs(z_axis))
+                    
+                    # Only allow the axis with the largest input, zero out all others
+                    if max_input > deadzone_threshold:
+                        if abs(y_axis) == max_input:  # Pitch (forward/backward) has priority
+                            x_axis = 0
+                            z_axis = 0
+                            yaw = 0
+                        elif abs(x_axis) == max_input:  # Roll (left/right) has priority
+                            y_axis = 0
+                            z_axis = 0
+                            yaw = 0
+                        elif abs(yaw) == max_input:  # Yaw (rotation) has priority
+                            x_axis = 0
+                            y_axis = 0
+                            z_axis = 0
+                        elif abs(z_axis) == max_input:  # Throttle (up/down) has priority
+                            x_axis = 0
+                            y_axis = 0
+                            yaw = 0
                 
-            # Read yaw
-            if yaw_map["axis"] < num_axes:
-                yaw = joystick.get_axis(yaw_map["axis"])
-                if yaw_map.get("invert", False):
-                    yaw = -yaw
-            else:
-                yaw = 0.0
-
-            # Apply deadzone and sensitivity
-            forward = deadzone(-pitch) * move_step * sensitivity
-            sideward = deadzone(roll) * move_step * sensitivity
-            upward = deadzone(throttle) * move_step * sensitivity
-            yaw_rate = deadzone(-yaw) * rotate_step * yaw_sensitivity
-
-            # Only send updates when values change or on regular intervals
-            update_counter += 1
-            should_update = (
-                update_counter >= update_every or
-                abs(forward - last_forward) > 0.01 or
-                abs(sideward - last_sideward) > 0.01 or
-                abs(upward - last_upward) > 0.01 or
-                abs(yaw_rate - last_yaw_rate) > 0.01
-            )
+                # Only send updates when values change or on regular intervals
+                update_counter += 1
+                should_update = (
+                    update_counter >= update_every or
+                    abs(x_axis - last_x_axis) > 0.01 or
+                    abs(y_axis - last_y_axis) > 0.01 or
+                    abs(z_axis - last_z_axis) > 0.01 or
+                    abs(yaw - last_yaw) > 0.01
+                )
+                
+                if should_update:
+                    conn.send([x_axis, y_axis, z_axis, yaw])
+                    last_x_axis, last_y_axis, last_z_axis, last_yaw = x_axis, y_axis, z_axis, yaw
+                    update_counter = 0
+                
+                # Debug output at high verbosity level
+                logger.debug_at_level(DEBUG_L3, "RC", f"x={x_axis:.2f}, y={y_axis:.2f}, z={z_axis:.2f}, yaw={yaw:.2f}")
+                
+            except Exception as e:
+                logger.error("RC", f"Error reading joystick axes: {e}")
+                time.sleep(0.1)  # Add a small delay before retrying
+                continue
             
-            if should_update:
-                conn.send((sideward, forward, upward, yaw_rate))
-                last_sideward, last_forward, last_upward, last_yaw_rate = sideward, forward, upward, yaw_rate
-                update_counter = 0
-
-            # Debug output at high verbosity level
-            logger.debug_at_level(DEBUG_L3, "RC", f"pitch={pitch:.2f}, roll={roll:.2f}, throttle={throttle:.2f}, yaw={yaw:.2f}")
-
             # Calculate frame processing time
             frame_end = time.time()
             frame_time = frame_end - frame_start
@@ -165,8 +161,26 @@ def rc_loop(config, conn):
             # This makes controller more responsive under system load
             sleep_time = max(0.01, 0.03 - frame_time_avg)  # Minimum 10ms, target 30ms total cycle time
             time.sleep(sleep_time)
-
+            
         except Exception as e:
-            logger.error("RC", f"Error reading axes: {e}")
+            logger.error("RC", f"Error in RC controller loop: {e}")
             time.sleep(0.1)  # Add a small delay before retrying
             continue
+    
+    # Clean up
+    pygame.quit()
+
+def get_axis_value(joystick, axis, deadzone, invert=False):
+    if axis is None:
+        return 0.0
+        
+    if isinstance(axis, (int, float)) and axis < joystick.get_numaxes():
+        value = joystick.get_axis(axis)
+        if abs(value) <= deadzone:
+            return 0.0
+        # Scale the value to maintain smooth range after deadzone
+        scaled_value = (value - (deadzone if value > 0 else -deadzone)) / (1.0 - deadzone)
+        if invert:
+            scaled_value = -scaled_value
+        return scaled_value
+    return 0.0
