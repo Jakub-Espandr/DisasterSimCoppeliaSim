@@ -71,7 +71,7 @@ class ImageViewer:
         """
         logger.info("ImageViewer", "Initializing depth image viewer application")
         self.root = root
-        self.root.title("Depth Image Viewer v.0.2.0")
+        self.root.title("Depth Image Viewer v.0.3.0")
         
         # Set app icon for Windows and macOS
         self.set_app_icon()
@@ -2587,6 +2587,17 @@ Tips
             canvas.bind_all("<MouseWheel>", _on_mousewheel)
             canvas.bind_all("<Shift-MouseWheel>", _on_shift_mousewheel)
             
+            # Bind keyboard navigation
+            def on_key(event):
+                if event.keysym == "Left":
+                    self.navigate_fullsize_image(popup, image_idx - 1)
+                elif event.keysym == "Right":
+                    self.navigate_fullsize_image(popup, image_idx + 1)
+                elif event.keysym == "Escape":
+                    popup.destroy()
+            
+            popup.bind("<Key>", on_key)
+            
             # Focus the popup window
             popup.focus_set()
             
@@ -2600,6 +2611,29 @@ Tips
         except Exception as e:
             logger.error("ImageViewer", f"Error showing full-size image: {str(e)}")
             self.show_status_message(f"Error showing full-size image: {str(e)}", self.error_color)
+    
+    def navigate_fullsize_image(self, popup, new_idx):
+        """Navigate to a different image in the full-size view."""
+        try:
+            if not self.current_batch or 'depths' not in self.current_batch:
+                return
+                
+            depths = self.current_batch['depths']
+            total_images = len(depths)
+            
+            # Handle wrapping around at the edges
+            if new_idx < 0:
+                new_idx = total_images - 1
+            elif new_idx >= total_images:
+                new_idx = 0
+                
+            # Close the current popup and open a new one with the new image
+            popup.destroy()
+            self.show_full_size_image(new_idx)
+            
+        except Exception as e:
+            logger.error("ImageViewer", f"Error navigating to image: {str(e)}")
+            self.show_status_message(f"Error navigating to image: {str(e)}", self.error_color)
     
     def show_3d_visualization(self, image_idx):
         """Create and display a 3D visualization of the depth image."""
@@ -2731,7 +2765,7 @@ Tips
             
             # Add a brief instruction
             instruction_label = ttk.Label(view_controls_frame, 
-                                       text="Click and drag on the 3D plot to rotate manually, or use the view buttons above for preset angles",
+                                       text="Click and drag on the 3D plot to rotate manually, or use the view buttons above for preset angles. Use left/right arrow keys to navigate between images.",
                                        font=("Helvetica", 10, "italic"))
             instruction_label.pack(pady=(0, 5))
             
@@ -2742,9 +2776,46 @@ Tips
             # Set initial view angle
             self.set_3d_view(ax, 30, -45, canvas)
             
+            # Bind keyboard navigation
+            def on_key(event):
+                if event.keysym == "Left":
+                    self.navigate_3d_visualization(popup, image_idx - 1)
+                elif event.keysym == "Right":
+                    self.navigate_3d_visualization(popup, image_idx + 1)
+                elif event.keysym == "Escape":
+                    popup.destroy()
+            
+            popup.bind("<Key>", on_key)
+            
+            # Focus the popup window
+            popup.focus_set()
+            
         except Exception as e:
             logger.error("ImageViewer", f"Error showing 3D visualization: {str(e)}")
             self.show_status_message(f"Error showing 3D visualization: {str(e)}", self.error_color)
+    
+    def navigate_3d_visualization(self, popup, new_idx):
+        """Navigate to a different image in the 3D visualization view."""
+        try:
+            if not self.current_batch or 'depths' not in self.current_batch:
+                return
+                
+            depths = self.current_batch['depths']
+            total_images = len(depths)
+            
+            # Handle wrapping around at the edges
+            if new_idx < 0:
+                new_idx = total_images - 1
+            elif new_idx >= total_images:
+                new_idx = 0
+                
+            # Close the current popup and open a new one with the new image
+            popup.destroy()
+            self.show_3d_visualization(new_idx)
+            
+        except Exception as e:
+            logger.error("ImageViewer", f"Error navigating 3D visualization: {str(e)}")
+            self.show_status_message(f"Error navigating 3D visualization: {str(e)}", self.error_color)
     
     def set_3d_view(self, ax, elev, azim, canvas):
         """Set the view angle for the 3D plot."""
@@ -2771,7 +2842,7 @@ def main():
     
     # Parse command line arguments
     import argparse
-    parser = argparse.ArgumentParser(description="Depth Image Viewer Tool v.0.2.0")
+    parser = argparse.ArgumentParser(description="Depth Image Viewer Tool v.0.3.0")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
     parser.add_argument("--debug", type=int, choices=[1, 2, 3], default=1, 
                       help="Debug level (1=Basic, 2=Medium, 3=Verbose)")
