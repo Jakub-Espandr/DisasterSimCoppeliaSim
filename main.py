@@ -115,6 +115,35 @@ def main():
     sim.setStepping(True)
     config = get_default_config()
     logger.debug_at_level(DEBUG_L2, "Main", f"Configuration loaded: {len(config)} settings")
+    
+    # Ensure the target is invisible from the start
+    try:
+        target_handle = sim.getObject('/target')
+        # Apply comprehensive visibility settings to target
+        visibility_props = {
+            "visible": False,           # General visibility
+            "depthInvisible": True,     # Hide from depth sensor
+            "viewableObjects": False,   # Hide from viewable objects
+            "pointsVisible": False      # Hide points if applicable
+        }
+        
+        logger.info("Main", "Setting target to invisible")
+        # Apply all visibility properties
+        for prop_name, prop_value in visibility_props.items():
+            try:
+                sim.setBoolProperty(target_handle, prop_name, prop_value)
+                logger.debug_at_level(DEBUG_L2, "Main", f"Set target {prop_name}={prop_value}")
+            except Exception as e:
+                logger.debug_at_level(DEBUG_L2, "Main", f"Property '{prop_name}' not available for target: {e}")
+                
+        # Try additional methods to ensure invisibility
+        try:
+            sim.setModelProperty(target_handle, sim.modelproperty_not_visible)
+            logger.debug_at_level(DEBUG_L2, "Main", "Set target model property to not visible")
+        except Exception as e:
+            logger.debug_at_level(DEBUG_L2, "Main", f"Could not set model property: {e}")
+    except Exception as e:
+        logger.warning("Main", f"Could not set target visibility at startup: {e}")
 
     # Start RC controller or keyboard
     if use_rc:

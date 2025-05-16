@@ -7,7 +7,11 @@ import datetime
 import json
 import time
 
-from Utils.capture_utils import capture_depth, capture_pose, capture_distance_to_victim
+from Utils.capture_utils import (
+    capture_depth, capture_rgb, capture_pose, 
+    capture_distance_to_victim, _ensure_target_invisible,
+    check_target_visibility
+)
 from Utils.save_utils import save_batch_npz
 from Utils.config_utils import get_default_config
 from Managers.scene_manager import SCENE_CREATION_COMPLETED, SCENE_CLEARED
@@ -255,8 +259,18 @@ class DepthDatasetCollector:
         
         # Only capture every N frames (skip frames)
         self.global_frame_counter += 1
+        
+        # Check target visibility periodically (every 50 frames)
+        if self.global_frame_counter % 50 == 0:
+            _ensure_target_invisible()  # Re-apply invisibility settings
+            check_target_visibility()   # Log the current visibility status
+        
+        # Skip frames for data capture
         if self.global_frame_counter % self.save_every_n_frames != 0:
             return
+
+        # Ensure target is invisible before any data capture - critical for data quality!
+        _ensure_target_invisible()
 
         # Calculate distance to victim
         distance = capture_distance_to_victim()

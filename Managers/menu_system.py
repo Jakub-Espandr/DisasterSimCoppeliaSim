@@ -79,7 +79,7 @@ class MenuSystem:
 
         # Build and style main window
         self.root = tk.Tk()
-        self.root.title("Disaster Simulation with Drone Navigation v1.3.2 - HyperDrive Pulse")
+        self.root.title("Disaster Simulation with Drone Navigation v1.3.2B - HyperDrive Pulse")
         self.root.geometry("700x900")  # Increased width to ensure all tabs are visible
         self.root.configure(bg="#1a1a1a")  # Dark background
         
@@ -1740,8 +1740,8 @@ class MenuSystem:
         version_frame.pack(fill="x", pady=10, padx=15)  # Increased padding
         
         version_info = """
-• Version: HyperDrive Pulse v1.3.2
-• Build: 10.05.2025
+• Version: HyperDrive Pulse v1.3.2B
+• Build: 17.05.2025
         """
         version_label = ttk.Label(
             version_frame, 

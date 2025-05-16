@@ -15,8 +15,15 @@ def setup_rgbd_camera(config):
     SC.sim.setBoolProperty(target_handle, "collidable", True)
     SC.sim.setBoolProperty(target_handle, "respondable", False)
 
-    # (Optional) Also hide from depth buffer:
+    # Hide from depth buffer
     SC.sim.setBoolProperty(target_handle, "depthInvisible", True)
+    
+    # Make target completely invisible
+    try:
+        SC.sim.setBoolProperty(target_handle, "visible", False)
+        logger.debug_at_level(DEBUG_L1, "RGBCameraSetup", "Target set to invisible.")
+    except Exception as e:
+        logger.warning("RGBCameraSetup", f"Failed to set target visibility: {e}")
 
     # Vision Sensor parameters
     options = 1 | 2  # bit 0 = explicitHandling, bit 1 = perspective projection
@@ -45,12 +52,12 @@ def setup_rgbd_camera(config):
     floating_view_rgb = SC.sim.floatingViewAdd(0.75, 0.2, 1.0, 1.0, 0)
     SC.sim.adjustView(floating_view_rgb, cam_rgb, 0)
 
-    # ─── Hide the target if needed ───
+    # ─── Additional visibility logging ───
     if not config.get('verbose', False):
         layer = SC.sim.getProperty(target_handle, "layer")
         logger.debug_at_level(DEBUG_L1, "RGBCameraSetup", f"Hiding target (layer {layer}).")
     else:
-        logger.debug_at_level(DEBUG_L1, "RGBCameraSetup", "Target remains visible.")
+        logger.debug_at_level(DEBUG_L1, "RGBCameraSetup", "Target visibility settings applied.")
 
     logger.info("RGBCameraSetup", "Sensors created and linked to floating views.")
 

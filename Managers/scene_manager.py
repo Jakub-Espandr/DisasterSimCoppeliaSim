@@ -212,20 +212,25 @@ class SceneManager:
             SC.sim.setObjectOrientation(quadcopter, -1, [0, 0, angle_to_center])
             SC.sim.setObjectOrientation(target, -1, [0, 0, angle_to_center])
             
-            # Try to set the target to be invisible to depth sensor
-            try:
-                SC.sim.setBoolProperty(target, "depthInvisible", True)
-            except Exception:
-                self.logger.debug_at_level(DEBUG_L2, "Teleport", "Note: 'depthInvisible' property not available for target object")
+            # Make target invisible - comprehensive approach
+            visibility_props = {
+                "visible": False,           # General visibility
+                "depthInvisible": True,     # Hide from depth sensor
+                "viewableObjects": False,   # Hide from viewable objects
+                "pointsVisible": False      # Hide points if applicable
+            }
             
-            # Try to set the target to be invisible visually
-            try:
-                SC.sim.setBoolProperty(target, "visible", False)
-            except Exception:
-                self.logger.debug_at_level(DEBUG_L2, "Teleport", "Note: 'visible' property not available for target object")
+            # Apply all visibility properties with error handling for each
+            for prop_name, prop_value in visibility_props.items():
+                try:
+                    SC.sim.setBoolProperty(target, prop_name, prop_value)
+                    self.logger.debug_at_level(DEBUG_L2, "Teleport", f"Set target {prop_name}={prop_value}")
+                except Exception as e:
+                    self.logger.debug_at_level(DEBUG_L2, "Teleport", f"Property '{prop_name}' not available for target: {e}")
             
             # Log the new position for debugging
             self.logger.info("Teleport", f"Quadcopter positioned at edge position [{x_pos:.2f}, {y_pos:.2f}, {z_pos:.2f}] facing center")
+            self.logger.info("Teleport", "Target visibility set to invisible")
                 
             return True
         except Exception as error_msg:
