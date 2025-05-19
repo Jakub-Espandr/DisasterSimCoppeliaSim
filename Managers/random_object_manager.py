@@ -224,13 +224,32 @@ class RandomObjectManager:
     def set_object_counts(self, num_birds=None, num_falling_trees=None, tree_spawn_interval=None, bird_speed=None):
         """Update the counts of dynamic objects"""
         if num_birds is not None:
-            self.num_birds = max(0, int(num_birds))
+            try:
+                self.num_birds = max(0, int(num_birds))
+            except (ValueError, TypeError):
+                self.logger.error("RandomObjectManager", f"Invalid num_birds value: {num_birds}. Must be convertible to integer.")
+                self.num_birds = 0
+                
         if num_falling_trees is not None:
-            self.num_falling_trees = max(0, int(num_falling_trees))
+            try:
+                self.num_falling_trees = max(0, int(num_falling_trees))
+            except (ValueError, TypeError):
+                self.logger.error("RandomObjectManager", f"Invalid num_falling_trees value: {num_falling_trees}. Must be convertible to integer.")
+                self.num_falling_trees = 0
+                
         if tree_spawn_interval is not None:
-            self.tree_spawn_interval = max(5.0, float(tree_spawn_interval))
+            try:
+                self.tree_spawn_interval = max(5.0, float(tree_spawn_interval))
+            except (ValueError, TypeError):
+                self.logger.error("RandomObjectManager", f"Invalid tree_spawn_interval value: {tree_spawn_interval}. Must be convertible to float.")
+                self.tree_spawn_interval = 30.0
+                
         if bird_speed is not None:
-            self.bird_speed = max(0.1, min(5.0, float(bird_speed)))
+            try:
+                self.bird_speed = max(0.1, min(5.0, float(bird_speed)))
+            except (ValueError, TypeError):
+                self.logger.error("RandomObjectManager", f"Invalid bird_speed value: {bird_speed}. Must be convertible to float.")
+                self.bird_speed = 1.0
             
         self._update_objects()
             

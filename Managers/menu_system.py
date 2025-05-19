@@ -27,6 +27,7 @@ import platform
 import threading
 from datetime import datetime
 import os
+import sys
 
 
 class MenuSystem:
@@ -79,7 +80,7 @@ class MenuSystem:
 
         # Build and style main window
         self.root = tk.Tk()
-        self.root.title("Disaster Simulation with Drone Navigation v1.3.2B - HyperDrive Pulse")
+        self.root.title("Disaster Simulation with Drone Navigation v1.3.3 - HyperDrive Insight")
         self.root.geometry("700x900")  # Increased width to ensure all tabs are visible
         self.root.configure(bg="#1a1a1a")  # Dark background
         
@@ -556,6 +557,19 @@ class MenuSystem:
                        bordercolor=accent_color,
                        thickness=10)
 
+        # Dark styles specifically for dialogs with white backgrounds
+        style.configure("Dark.TFrame", background="#1a1a1a")
+        style.configure("Dark.TLabelframe", 
+                       background="#1a1a1a", 
+                       foreground=fg_color,
+                       borderwidth=1,
+                       relief="solid")
+        style.configure("Dark.TLabelframe.Label", 
+                       background="#1a1a1a",
+                       foreground=accent_color,
+                       font=("Segoe UI", 11, "bold"),
+                       padding=[0, 5])
+
     def _register_event_handlers(self):
         """Set up event handlers for scene-related events"""
         # Scene creation events
@@ -784,7 +798,19 @@ class MenuSystem:
         # Create scene with event-driven approach
         def create_scene_with_event():
             # Apply all config changes first to ensure latest values are used
-            self._apply_all_changes()  # Use apply_all_changes instead of apply_all_config_changes
+            self._apply_all_config_changes()  # Apply all config changes from UI
+            
+            # Ensure we have explicit int values for all static object counts to avoid any type issues
+            self.config["num_trees"] = int(self.config.get("num_trees", 0))
+            self.config["num_rocks"] = int(self.config.get("num_rocks", 0))
+            self.config["num_bushes"] = int(self.config.get("num_bushes", 0))
+            self.config["num_foliage"] = int(self.config.get("num_foliage", 0))
+            
+            # Also ensure dynamic object settings are explicitly converted to the right types
+            self.config["num_birds"] = int(self.config.get("num_birds", 10))
+            self.config["num_falling_trees"] = int(self.config.get("num_falling_trees", 5))
+            self.config["tree_spawn_interval"] = float(self.config.get("tree_spawn_interval", 30.0))
+            self.config["bird_speed"] = float(self.config.get("bird_speed", 1.0))
             
             # Disable all buttons during scene creation
             for btn in self.scene_buttons:
@@ -798,6 +824,15 @@ class MenuSystem:
             self.progress_bar.pack(fill="x", pady=5)
             self.progress_var.set(0.0)
             self.status_label.configure(text="Creating scene...", foreground="#00b4d8")
+            
+            # Log the configuration for debugging
+            self.logger.info("MenuSystem", f"Creating scene with config: "
+                            f"{self.config['num_trees']} static trees, "
+                            f"{self.config['num_rocks']} rocks, "
+                            f"{self.config['num_bushes']} bushes, "
+                            f"{self.config['num_foliage']} foliage elements, "
+                            f"{self.config['num_birds']} birds, "
+                            f"{self.config['num_falling_trees']} falling trees")
             
             # Start scene creation via event system
             create_scene(self.config)
@@ -1055,7 +1090,7 @@ class MenuSystem:
         sim_fields = [f for f in FIELDS if f['key'] not in [
             'num_rocks', 'num_bushes', 'num_foliage', 
             'num_birds', 'num_falling_trees', 'tree_spawn_interval', 
-            'num_trees', 'rc_sensitivity'
+            'num_trees', 'rc_sensitivity', 'bird_speed'
         ]]
         for field in sim_fields:
             key, desc, typ = field['key'], field['desc'], field['type']
@@ -1138,10 +1173,10 @@ class MenuSystem:
             if hasattr(SM, 'random_object_manager') and SM.random_object_manager:
                 self.logger.info("MenuSystem", f"Setting counts: {num_birds} birds (speed: {bird_speed}), {num_trees} trees, spawn: {tree_spawn}s")
                 SM.random_object_manager.set_object_counts(
-                    num_birds=num_birds, 
-                    num_falling_trees=num_trees,
-                    tree_spawn_interval=tree_spawn,
-                    bird_speed=bird_speed
+                    num_birds=int(num_birds), 
+                    num_falling_trees=int(num_trees),
+                    tree_spawn_interval=float(tree_spawn),
+                    bird_speed=float(bird_speed)
                 )
                 self.status_label.configure(text=f"Updated: {num_birds} birds (speed: {bird_speed}), {num_trees} trees, spawn: {tree_spawn}s")
                 self.root.after(1000, lambda: self.status_label.configure(text=""))
@@ -1303,6 +1338,11 @@ class MenuSystem:
             completed_objects = data.get('completed_objects', 0)
             total_objects = data.get('total_objects', 0)
             
+            # Ensure the progress bar is visible
+            if not self.progress_bar.winfo_ismapped():
+                self.progress_bar.pack(fill="x", pady=5)
+                self.logger.debug_at_level(DEBUG_L1, "MenuSystem", "Progress bar made visible")
+            
             # Set progress bar value
             self.progress_var.set(progress)
             
@@ -1316,6 +1356,13 @@ class MenuSystem:
             
             # Update status label
             self.status_label.configure(text=message)
+            
+            # Update button states
+            for i, btn in enumerate(self.scene_buttons):
+                if i == 2:  # Cancel button is index 2
+                    btn.configure(state="normal")  # Enable the cancel button during creation
+                else:
+                    btn.configure(state="disabled")  # Disable other buttons during creation
             
             # Force the UI to update
             self.root.update_idletasks()
@@ -1740,8 +1787,8 @@ class MenuSystem:
         version_frame.pack(fill="x", pady=10, padx=15)  # Increased padding
         
         version_info = """
-• Version: HyperDrive Pulse v1.3.2B
-• Build: 17.05.2025
+• Version: HyperDrive Insight v1.3.3
+• Build: 19.05.2025
         """
         version_label = ttk.Label(
             version_frame, 
@@ -2128,8 +2175,13 @@ class MenuSystem:
     def _save_config(self):
         """Save current configuration to a JSON file"""
         try:
-            # Get the current configuration values
-            config_to_save = {}
+            # First make sure we have the latest settings from the UI
+            self._apply_all_config_changes()
+            
+            # Start with our complete current configuration
+            config_to_save = dict(self.config)
+            
+            # Update with any UI values not yet applied
             for key, var in self._config_vars.items():
                 if isinstance(var, tk.BooleanVar):
                     config_to_save[key] = var.get()
@@ -2140,7 +2192,22 @@ class MenuSystem:
                     except ValueError:
                         # If not a number, save as string
                         config_to_save[key] = var.get()
-
+            
+            # Ensure all control settings are included
+            control_settings = ['move_step', 'rotate_step_deg', 'single_axis_mode', 
+                              'rc_sensitivity', 'rc_deadzone', 'rc_yaw_sensitivity', 'rc_mappings']
+            
+            # Update any RC controller settings from the RC settings object if it exists
+            if hasattr(self, 'rc_settings') and self.rc_settings:
+                # Get RC settings and add them to the configuration
+                if hasattr(self.rc_settings, 'get_settings'):
+                    rc_config = self.rc_settings.get_settings()
+                    for key, value in rc_config.items():
+                        config_to_save[key] = value
+            
+            # Add a flag indicating this config includes controls settings
+            config_to_save['includes_rc_settings'] = True
+            
             # Open file dialog to choose save location
             file_path = filedialog.asksaveasfilename(
                 defaultextension=".json",
@@ -2151,9 +2218,10 @@ class MenuSystem:
             if file_path:
                 with open(file_path, 'w') as f:
                     json.dump(config_to_save, f, indent=4)
-                self.status_label.configure(text="Configuration saved successfully!")
+                self.status_label.configure(text="All settings (including controls) saved successfully!")
                 self.root.after(2000, lambda: self.status_label.configure(text=""))
         except Exception as e:
+            self.logger.error("MenuSystem", f"Error saving configuration: {e}")
             self.status_label.configure(text=f"Error saving configuration: {str(e)}")
             self.root.after(2000, lambda: self.status_label.configure(text=""))
 
@@ -2167,26 +2235,453 @@ class MenuSystem:
             )
             
             if file_path:
+                # Read the configuration file
                 with open(file_path, 'r') as f:
                     loaded_config = json.load(f)
                 
-                # Update all configuration variables
-                for key, value in loaded_config.items():
-                    if key in self._config_vars:
-                        var = self._config_vars[key]
-                        if isinstance(var, tk.BooleanVar):
-                            var.set(bool(value))
-                        else:
-                            var.set(str(value))
-                        self._update_config(key, value)
+                # Show confirmation dialog
+                dialog = tk.Toplevel(self.root)
+                dialog.title("Load Configuration")
+                dialog.geometry("450x300")
+                dialog.transient(self.root)
+                dialog.grab_set()  # Modal
                 
-                # Apply the changes
-                self._apply_all_changes()
-                self.status_label.configure(text="Configuration loaded successfully!")
-                self.root.after(2000, lambda: self.status_label.configure(text=""))
+                # Center on parent
+                dialog.update_idletasks()
+                x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (dialog.winfo_width() // 2)
+                y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (dialog.winfo_height() // 2)
+                dialog.geometry(f"+{x}+{y}")
+                
+                # Content
+                content_frame = ttk.Frame(dialog, padding=35)
+                content_frame.pack(fill=tk.BOTH, expand=True)
+                
+                # Description
+                ttk.Label(
+                    content_frame,
+                    text=f"Load configuration from:\n{os.path.basename(file_path)}",
+                    font=("Segoe UI", 11, "bold"),
+                    wraplength=350,
+                    justify="center"
+                ).pack(pady=(0, 20))
+                
+                # Add note about controls being included
+                ttk.Label(
+                    content_frame,
+                    text="Note: This will replace ALL current settings including control mappings and keyboard/RC settings.",
+                    font=("Segoe UI", 10),
+                    wraplength=350,
+                    foreground="#DD0000",
+                    justify="center"
+                ).pack(pady=(0, 20))
+                
+                # Buttons
+                button_frame = ttk.Frame(content_frame)
+                button_frame.pack(fill=tk.X, pady=20)
+                
+                cancel_btn = ttk.Button(
+                    button_frame, 
+                    text="Cancel", 
+                    command=dialog.destroy
+                )
+                cancel_btn.pack(side=tk.LEFT, padx=10, expand=True, fill=tk.X, ipady=4)
+                
+                load_btn = ttk.Button(
+                    button_frame, 
+                    text="Load Configuration", 
+                    style="Apply.TButton",
+                    command=lambda: self._confirm_load_config(dialog, loaded_config, file_path)
+                )
+                load_btn.pack(side=tk.RIGHT, padx=10, expand=True, fill=tk.X, ipady=4)
         except Exception as e:
             self.status_label.configure(text=f"Error loading configuration: {str(e)}")
-            self.root.after(2000, lambda: self.status_label.configure(text=""))
+            self.root.after(3000, lambda: self.status_label.configure(text=""))
+
+    def _confirm_load_config(self, dialog, loaded_config, file_path):
+        """Apply the loaded configuration after confirmation"""
+        dialog.destroy()  # Close original dialog
+        
+        try:
+            # Create a new dialog to show settings that will be changed
+            preview_dialog = tk.Toplevel(self.root)
+            preview_dialog.title("Configuration Preview")
+            preview_dialog.geometry("1000x400")  # Increased size for better readability
+            preview_dialog.minsize(1000, 400)
+            preview_dialog.configure(bg="#1a1a1a")  # Set dark background
+            preview_dialog.transient(self.root)
+            preview_dialog.grab_set()  # Modal
+            
+            # Center on parent
+            preview_dialog.update_idletasks()
+            x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (preview_dialog.winfo_width() // 2)
+            y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (preview_dialog.winfo_height() // 2)
+            preview_dialog.geometry(f"+{x}+{y}")
+            
+            # Content
+            frame = ttk.Frame(preview_dialog, padding=20, style="Dark.TFrame")
+            frame.pack(fill=tk.BOTH, expand=True)
+            
+            # Title
+            ttk.Label(
+                frame,
+                text=f"Preview of Settings from:\n{os.path.basename(file_path)}",
+                font=("Segoe UI", 14, "bold"),
+                foreground="#FFFFFF",  # Change text color to white
+                wraplength=550,
+                justify="center"
+            ).pack(pady=(0, 10))
+            
+            # Categorize settings
+            rc_settings = {}
+            movement_settings = {}
+            environment_settings = {}
+            other_settings = {}
+            
+            # Check for RC controller settings
+            rc_keys = ['rc_sensitivity', 'rc_deadzone', 'rc_yaw_sensitivity', 'single_axis_mode']
+            
+            # Track changed settings
+            changed_settings = []
+            
+            for key, value in loaded_config.items():
+                # Skip the flag
+                if key == 'includes_rc_settings':
+                    continue
+                    
+                # Check if value is different from current
+                current_value = self.config.get(key, "Not set")
+                if value != current_value:
+                    changed_settings.append(key)
+                
+                # Categorize the setting
+                if key in rc_keys or key == 'rc_mappings':
+                    rc_settings[key] = value
+                elif key in ['move_step', 'rotate_step_deg']:
+                    movement_settings[key] = value
+                elif key in ['num_trees', 'num_rocks', 'num_bushes', 'num_birds', 
+                           'num_falling_trees', 'num_foliage', 'area_size', 'tree_spawn_interval', 'bird_speed']:
+                    environment_settings[key] = value
+                else:
+                    other_settings[key] = value
+            
+            # Show number of changes
+            changes_frame = ttk.Frame(frame, style="Dark.TFrame")
+            changes_frame.pack(fill="x", pady=5)
+            
+            changes_count = len(changed_settings)
+            changes_text = f"{changes_count} setting{'s' if changes_count != 1 else ''} will be changed"
+            
+            ttk.Label(
+                changes_frame,
+                text=changes_text,
+                font=("Segoe UI", 11, "bold"),
+                foreground="#FF6600" if changes_count > 0 else "#00AA00"
+            ).pack(side="left", pady=5)
+            
+            # Add toggle for "Show changed settings only"
+            show_changed_only = tk.BooleanVar(value=True)
+            
+            def refresh_settings_display():
+                # Clear previous frames
+                for widget in settings_frame.winfo_children():
+                    widget.destroy()
+                
+                # Add sections with settings
+                add_section("RC Controller Settings", rc_settings, self.config, show_changed_only.get())
+                add_section("Movement Settings", movement_settings, self.config, show_changed_only.get())
+                add_section("Environment Settings", environment_settings, self.config, show_changed_only.get())
+                add_section("Other Settings", other_settings, self.config, show_changed_only.get())
+            
+            # Checkbox for show changed only
+            show_changed_check = ttk.Checkbutton(
+                changes_frame,
+                text="Show changed settings only",
+                variable=show_changed_only,
+                command=refresh_settings_display
+            )
+            show_changed_check.pack(side="right", padx=10)
+            
+            # Create a canvas with scrollbar for the settings
+            canvas = tk.Canvas(frame, highlightthickness=0, bg="#1a1a1a")
+            scrollbar = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
+            settings_frame = ttk.Frame(canvas, style="Dark.TFrame")
+            
+            # Configure canvas
+            canvas.configure(yscrollcommand=scrollbar.set, bg="#1a1a1a")
+            canvas.create_window((0, 0), window=settings_frame, anchor="nw", width=590)  # Wider for better visibility
+            settings_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+            
+            # Pack canvas and scrollbar
+            canvas.pack(side="left", fill="both", expand=True)
+            scrollbar.pack(side="right", fill="y")
+            
+            # Function to add a section of settings
+            def add_section(title, settings_dict, current_dict, changed_only=True):
+                # Prepare data for display
+                display_data = []
+                for key, new_value in settings_dict.items():
+                    current_value = current_dict.get(key, "Not set")
+                    
+                    # Skip unchanged settings if filter is enabled
+                    if changed_only and new_value == current_value:
+                        continue
+                    
+                    display_data.append((key, current_value, new_value))
+                
+                # Skip empty sections
+                if not display_data:
+                    return
+                
+                # Section title
+                section_frame = ttk.LabelFrame(settings_frame, text=title, padding=10, style="Dark.TLabelframe")
+                section_frame.pack(fill="x", pady=5, padx=5)
+                
+                # Table headers
+                header_frame = ttk.Frame(section_frame, style="Dark.TFrame")
+                header_frame.pack(fill="x", pady=5)
+                
+                ttk.Label(
+                    header_frame,
+                    text="Setting",
+                    font=("Segoe UI", 10, "bold"),
+                    foreground="#FFFFFF",  # Add white text color
+                    width=25
+                ).pack(side="left")
+                
+                ttk.Label(
+                    header_frame,
+                    text="Current Value",
+                    font=("Segoe UI", 10, "bold"),
+                    foreground="#FFFFFF",  # Add white text color
+                    width=15
+                ).pack(side="left")
+                
+                ttk.Label(
+                    header_frame,
+                    text="New Value",
+                    font=("Segoe UI", 10, "bold"),
+                    foreground="#FFFFFF",  # Add white text color
+                    width=15
+                ).pack(side="left")
+                
+                # Add separator
+                ttk.Separator(section_frame, orient="horizontal").pack(fill="x", pady=5)
+                
+                # Mapping of raw settings to human-readable names
+                setting_names = {
+                    # RC Settings
+                    "rc_sensitivity": "RC Sensitivity",
+                    "rc_deadzone": "RC Deadzone",
+                    "rc_yaw_sensitivity": "RC Yaw Sensitivity",
+                    "rc_mappings": "RC Control Mappings",
+                    "single_axis_mode": "Single-Axis Mode",
+                    
+                    # Movement Settings
+                    "move_step": "Movement Speed",
+                    "rotate_step_deg": "Rotation Speed",
+                    
+                    # Environment Settings
+                    "num_trees": "Static Trees",
+                    "num_rocks": "Rocks",
+                    "num_bushes": "Bushes",
+                    "num_foliage": "Foliage",
+                    "num_birds": "Birds",
+                    "tree_spawn_interval": "Tree Spawn Interval (s)",
+                    "num_falling_trees": "Falling Trees",
+                    "area_size": "Area Size",
+                    "bird_speed": "Bird Speed"
+                }
+                
+                # Add settings rows
+                for key, current_value, new_value in display_data:
+                    # Create row
+                    row_frame = ttk.Frame(section_frame, style="Dark.TFrame")
+                    row_frame.pack(fill="x", pady=2)
+                    
+                    # Setting name (use human-readable name if available)
+                    display_name = setting_names.get(key, key)
+                    
+                    # Mark changed settings with a different color
+                    name_color = "#0066CC" if current_value != new_value else "#FFFFFF"
+                    
+                    ttk.Label(
+                        row_frame,
+                        text=display_name,
+                        foreground=name_color,
+                        font=("Segoe UI", 10, "bold" if current_value != new_value else "normal"),
+                        width=25
+                    ).pack(side="left")
+                    
+                    # Format values based on their type
+                    def format_value(value):
+                        if value == "Not set":
+                            return value
+                        
+                        # Format booleans
+                        if isinstance(value, bool):
+                            return "Enabled" if value else "Disabled"
+                            
+                        # Format RC mappings
+                        if key == "rc_mappings" and isinstance(value, dict):
+                            # Count mapped controls
+                            mapped_count = sum(1 for control in ["throttle", "yaw", "pitch", "roll"] if control in value)
+                            return f"{mapped_count}/4 controls mapped"
+                        
+                        # Format floats with appropriate precision
+                        if isinstance(value, float):
+                            if key == "rc_yaw_sensitivity":
+                                return f"{int(value * 100)}%"  # Display as percentage
+                            elif abs(value) < 0.1:
+                                return f"{value:.3f}"  # More precision for very small values
+                            elif abs(value) < 1:
+                                return f"{value:.2f}"
+                            else:
+                                return f"{value:.1f}"
+                                
+                        # Default formatting
+                        return str(value)
+                    
+                    # Current value
+                    current_text = format_value(current_value)
+                    if len(current_text) > 15:
+                        current_text = current_text[:12] + "..."
+                    
+                    ttk.Label(
+                        row_frame,
+                        text=current_text,
+                        foreground="#FFFFFF",  # Add white foreground color
+                        width=15
+                    ).pack(side="left")
+                    
+                    # New value
+                    new_text = format_value(new_value)
+                    if len(new_text) > 15:
+                        new_text = new_text[:12] + "..."
+                    
+                    # Show changed values in green, use regular color for unchanged values
+                    value_color = "#008800" if current_value != new_value else "#FFFFFF"
+                    
+                    ttk.Label(
+                        row_frame,
+                        text=new_text,
+                        foreground=value_color,
+                        font=("Segoe UI", 10, "bold" if current_value != new_value else "normal"),
+                        width=15
+                    ).pack(side="left")
+                    
+                    # For boolean values, add a visual indicator
+                    if isinstance(new_value, bool):
+                        indicator_color = "#00AA00" if new_value else "#AA0000"
+                        indicator = "■" if new_value else "□"
+                        ttk.Label(
+                            row_frame,
+                            text=indicator,
+                            foreground=indicator_color,
+                            font=("Segoe UI", 12, "bold")
+                        ).pack(side="left", padx=5)
+                    
+                    # For rc_mappings, add a details button
+                    if key == "rc_mappings" and isinstance(new_value, dict):
+                        details_btn = ttk.Button(
+                            row_frame,
+                            text="Details",
+                            width=8,
+                            command=lambda m=new_value: self._show_mapping_details(preview_dialog, m)
+                        )
+                        details_btn.pack(side="left", padx=5)
+            
+            # Call refresh to populate the settings display
+            refresh_settings_display()
+            
+            # Buttons
+            button_frame = ttk.Frame(frame, style="Dark.TFrame")
+            button_frame.pack(fill=tk.X, pady=20)
+            
+            cancel_btn = ttk.Button(
+                button_frame, 
+                text="Cancel", 
+                command=preview_dialog.destroy
+            )
+            cancel_btn.pack(side=tk.LEFT, padx=10, expand=True, fill=tk.X, ipady=4)
+            
+            apply_btn = ttk.Button(
+                button_frame, 
+                text="Apply These Settings", 
+                style="Apply.TButton",
+                command=lambda: self._apply_loaded_config(preview_dialog, loaded_config, file_path)
+            )
+            apply_btn.pack(side=tk.RIGHT, padx=10, expand=True, fill=tk.X, ipady=4)
+        
+        except Exception as e:
+            self.logger.error("MenuSystem", f"Error showing config preview: {e}")
+            self.status_label.configure(text=f"Error previewing configuration: {str(e)}")
+            self.root.after(3000, lambda: self.status_label.configure(text=""))
+    
+    def _apply_loaded_config(self, dialog, loaded_config, file_path):
+        """Actually apply the loaded configuration after preview confirmation"""
+        dialog.destroy()
+        
+        try:
+            # Update all configuration variables
+            for key, value in loaded_config.items():
+                # Update the config dictionary directly
+                self.config[key] = value
+                
+                # Update UI elements if they exist
+                if key in self._config_vars:
+                    var = self._config_vars[key]
+                    if isinstance(var, tk.BooleanVar):
+                        var.set(bool(value))
+                    else:
+                        var.set(str(value))
+            
+            # Explicitly convert important numeric values to proper types
+            type_conversions = {
+                # Static objects
+                "num_trees": int,
+                "num_rocks": int,
+                "num_bushes": int,
+                "num_foliage": int,
+                # Dynamic objects
+                "num_birds": int, 
+                "num_falling_trees": int,
+                "tree_spawn_interval": float,
+                "bird_speed": float,
+                # Other numeric values
+                "area_size": float,
+                "move_step": float,
+                "rotate_step_deg": float,
+                "batch_size": int
+            }
+            
+            for key, conversion_func in type_conversions.items():
+                if key in self.config:
+                    try:
+                        self.config[key] = conversion_func(self.config[key])
+                    except (ValueError, TypeError):
+                        # If conversion fails, log error and use default
+                        self.logger.warning("MenuSystem", f"Error converting {key} value '{self.config[key]}' to {conversion_func.__name__}")
+                        if conversion_func == int:
+                            self.config[key] = 0  # Default for count values
+                        else:
+                            self.config[key] = 0.0  # Default for float values
+            
+            # Apply all the changes at once (this handles dynamic objects only)
+            self._apply_all_changes()
+            
+            # Ensure RC controller settings are updated if they exist
+            for key in ['rc_sensitivity', 'rc_deadzone', 'rc_yaw_sensitivity', 'rc_mappings', 'single_axis_mode']:
+                if key in loaded_config:
+                    EM.publish('config/updated', key)
+            
+            self.status_label.configure(text=f"Configuration loaded successfully from {os.path.basename(file_path)}!")
+            self.logger.info("MenuSystem", f"Loaded config with: {self.config['num_trees']} trees, {self.config['num_rocks']} rocks, "
+                          f"{self.config['num_bushes']} bushes, {self.config['num_foliage']} foliage, "
+                          f"{self.config['num_birds']} birds, {self.config['num_falling_trees']} falling trees")
+            self.root.after(3000, lambda: self.status_label.configure(text=""))
+        except Exception as e:
+            self.status_label.configure(text=f"Error applying configuration: {str(e)}")
+            self.root.after(3000, lambda: self.status_label.configure(text=""))
 
     def _update_performance_metrics(self):
         """Update performance metrics in the UI"""
@@ -2562,6 +3057,18 @@ class MenuSystem:
                                   command=self._save_config_to_dataset)
         save_config_btn.pack(fill="x", pady=10)
         
+        # Add button to open depth image viewer tool
+        viewer_frame = ttk.LabelFrame(parent, text="Tools", padding=15, labelanchor="n")
+        viewer_frame.pack(fill="x", pady=10, padx=5)
+        
+        ttk.Label(viewer_frame, text="Open the depth image viewer to examine and manipulate captured depth images.",
+                wraplength=500, justify="left").pack(pady=5)
+        
+        open_viewer_btn = ttk.Button(viewer_frame,
+                                   text="Open Depth Image Viewer",
+                                   command=self._open_depth_image_viewer)
+        open_viewer_btn.pack(fill="x", pady=10)
+        
         # Status label for configuration saving
         self.config_status_var = tk.StringVar(value="")
         config_status_label = ttk.Label(config_frame, textvariable=self.config_status_var, 
@@ -2609,7 +3116,17 @@ class MenuSystem:
                 font=("Segoe UI", 11),  # Increased font size from 10 to 11
                 wraplength=350,
                 justify="center"
-            ).pack(pady=(0, 20))  # Increased bottom padding from 10 to 20
+            ).pack(pady=(0, 10))
+            
+            # Add note about controls being included
+            ttk.Label(
+                content_frame,
+                text="Note: All settings including control mappings will be saved.",
+                font=("Segoe UI", 10, "italic"),
+                wraplength=350,
+                foreground="#666666",
+                justify="center"
+            ).pack(pady=(0, 10))
             
             ttk.Label(
                 content_frame, 
@@ -2662,10 +3179,39 @@ class MenuSystem:
         """Save the configuration with the provided name"""
         dialog.destroy()  # Close the dialog
         
+        # Ensure we have the latest config with all settings from UI elements
+        self._apply_all_config_changes()
+        
+        # Create a complete copy of the configuration
+        complete_config = dict(self.config)
+        
+        # Update with any UI values not yet applied
+        for key, var in self._config_vars.items():
+            if isinstance(var, tk.BooleanVar):
+                complete_config[key] = var.get()
+            else:
+                try:
+                    # Try to convert to float if possible
+                    complete_config[key] = float(var.get())
+                except ValueError:
+                    # If not a number, save as string
+                    complete_config[key] = var.get()
+        
+        # Update any RC controller settings from the RC settings object if it exists
+        if hasattr(self, 'rc_settings') and self.rc_settings:
+            # Get RC settings and add them to the configuration
+            if hasattr(self.rc_settings, 'get_settings'):
+                rc_config = self.rc_settings.get_settings()
+                for key, value in rc_config.items():
+                    complete_config[key] = value
+        
+        # Add a message to the config indicating it includes RC settings
+        complete_config['includes_rc_settings'] = True
+        
         # Save configuration with custom name
-        filepath = depth_collector.save_config_to_json(self.config, name)
+        filepath = depth_collector.save_config_to_json(complete_config, name)
         if filepath:
-            self.config_status_var.set(f"Configuration saved to: {os.path.basename(filepath)}")
+            self.config_status_var.set(f"All settings (including controls) saved to: {os.path.basename(filepath)}")
             self.root.after(3000, lambda: self.config_status_var.set(""))
         else:
             self.config_status_var.set("Error saving configuration")
@@ -3512,4 +4058,122 @@ For example:
             self.status_label.configure(text=f"Error updating movement mode: {e}")
             self.root.after(2000, lambda: self.status_label.configure(text=""))
             self.logger.error("MenuSystem", f"Error updating movement mode: {e}")
+
+    def _open_depth_image_viewer(self):
+        """Open the depth image viewer tool"""
+        try:
+            # Get the correct path to the viewer tool
+            import subprocess
+            import os
+            import sys
+            
+            # Get the path to the Tools directory
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            parent_dir = os.path.dirname(current_dir)
+            viewer_path = os.path.join(parent_dir, "Tools", "View_Depth_Image.py")
+            
+            # Check if the file exists
+            if not os.path.exists(viewer_path):
+                self.logger.error("MenuSystem", f"Depth image viewer not found at {viewer_path}")
+                self.config_status_var.set("Error: Depth image viewer tool not found")
+                self.root.after(3000, lambda: self.config_status_var.set(""))
+                return
+                
+            # Get the current Python interpreter path
+            python_executable = sys.executable
+            
+            # Launch the viewer tool with the current Python interpreter
+            self.logger.info("MenuSystem", f"Launching depth image viewer from {viewer_path} with {python_executable}")
+            subprocess.Popen([python_executable, viewer_path])
+            
+            # Show success message
+            self.config_status_var.set("Depth image viewer launched successfully")
+            self.root.after(3000, lambda: self.config_status_var.set(""))
+        except Exception as e:
+            self.logger.error("MenuSystem", f"Error opening depth image viewer: {e}")
+            self.config_status_var.set(f"Error: {str(e)}")
+            self.root.after(3000, lambda: self.config_status_var.set(""))
+
+    def _show_mapping_details(self, parent, mappings):
+        """Show details of RC mappings in a popup dialog"""
+        # Create popup dialog
+        dialog = tk.Toplevel(parent)
+        dialog.title("RC Mappings Details")
+        dialog.geometry("400x300")
+        dialog.transient(parent)  # Make dialog modal to parent
+        dialog.grab_set()
+        
+        # Center on parent
+        dialog.update_idletasks()
+        x = parent.winfo_x() + (parent.winfo_width() // 2) - (dialog.winfo_width() // 2)
+        y = parent.winfo_y() + (parent.winfo_height() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        # Content frame
+        frame = ttk.Frame(dialog, padding=15)
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        ttk.Label(
+            frame,
+            text="RC Controller Axis Mappings",
+            font=("Segoe UI", 12, "bold"),
+            foreground="#00b4d8"
+        ).pack(pady=(0, 15))
+        
+        # Create table for mappings
+        control_names = [("throttle", "Throttle"), ("yaw", "Yaw"), ("pitch", "Pitch"), ("roll", "Roll")]
+        
+        for control_id, display_name in control_names:
+            # Get mapping for this control
+            mapping = mappings.get(control_id, {})
+            axis = mapping.get("axis", "Not mapped")
+            inverted = mapping.get("invert", False)
+            
+            # Control row
+            row_frame = ttk.Frame(frame)
+            row_frame.pack(fill="x", pady=5)
+            
+            # Control name
+            ttk.Label(
+                row_frame,
+                text=f"{display_name}:",
+                width=15,
+                font=("Segoe UI", 10, "bold")
+            ).pack(side="left")
+            
+            # Axis number
+            if axis == "Not mapped":
+                axis_text = "Not mapped"
+                axis_color = "#AA0000"  # Red for not mapped
+            else:
+                axis_text = f"Axis {axis}"
+                axis_color = "#FFFFFF"  # White for mapped (was Black)
+                
+            ttk.Label(
+                row_frame,
+                text=axis_text,
+                foreground=axis_color,
+                width=12
+            ).pack(side="left", padx=5)
+            
+            # Inversion indicator
+            if axis != "Not mapped":
+                invert_text = "Inverted" if inverted else "Normal"
+                invert_color = "#AA6600" if inverted else "#00AA00"  # Orange if inverted, green if normal
+                
+                ttk.Label(
+                    row_frame,
+                    text=invert_text,
+                    foreground=invert_color,
+                    width=10
+                ).pack(side="left", padx=5)
+        
+        # Close button
+        ttk.Button(
+            frame,
+            text="Close",
+            command=dialog.destroy,
+            width=15
+        ).pack(pady=15)
 

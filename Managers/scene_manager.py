@@ -82,15 +82,21 @@ class SceneManager:
     
     def _generate_creation_tasks(self):
         """Generate all the object creation tasks based on config"""
-        area_size = self.config.get("area_size", 10.0)
+        area_size = float(self.config.get("area_size", 10.0))
         
         # Add floor task
         self.creation_tasks.append(('floor', {
             'area_size': area_size
         }))
         
-        # Add rocks
-        num_rocks = self.config.get("num_rocks", 0)
+        # Add rocks - ensure integer conversion
+        try:
+            num_rocks = int(self.config.get("num_rocks", 0))
+        except (ValueError, TypeError):
+            self.logger.warning("SceneManager", f"Invalid num_rocks value: {self.config.get('num_rocks')}, defaulting to 0")
+            num_rocks = 0
+            
+        self.logger.info("SceneManager", f"Creating {num_rocks} rocks")
         for _ in range(num_rocks):
             x = random.uniform(-area_size/2, area_size/2)
             y = random.uniform(-area_size/2, area_size/2)
@@ -100,11 +106,17 @@ class SceneManager:
                 'size': size
             }))
         
-        # Add trees
-        num_trees = self.config.get("num_trees", 0)
-        fraction_standing = self.config.get("fraction_standing", 0.7)
+        # Add trees - ensure integer conversion
+        try:
+            num_trees = int(self.config.get("num_trees", 0))
+        except (ValueError, TypeError):
+            self.logger.warning("SceneManager", f"Invalid num_trees value: {self.config.get('num_trees')}, defaulting to 0")
+            num_trees = 0
+            
+        fraction_standing = float(self.config.get("fraction_standing", 0.7))
         num_standing = int(num_trees * fraction_standing)
         
+        self.logger.info("SceneManager", f"Creating {num_trees} static trees ({num_standing} standing, {num_trees - num_standing} fallen)")
         for i in range(num_trees):
             x = random.uniform(-area_size/2, area_size/2)
             y = random.uniform(-area_size/2, area_size/2)
@@ -116,8 +128,14 @@ class SceneManager:
                 'trunk_len': trunk_len
             }))
         
-        # Add bushes
-        num_bushes = self.config.get("num_bushes", 0)
+        # Add bushes - ensure integer conversion
+        try:
+            num_bushes = int(self.config.get("num_bushes", 0))
+        except (ValueError, TypeError):
+            self.logger.warning("SceneManager", f"Invalid num_bushes value: {self.config.get('num_bushes')}, defaulting to 0")
+            num_bushes = 0
+            
+        self.logger.info("SceneManager", f"Creating {num_bushes} bushes")
         for _ in range(num_bushes):
             x = random.uniform(-area_size/2, area_size/2)
             y = random.uniform(-area_size/2, area_size/2)
@@ -125,8 +143,14 @@ class SceneManager:
                 'position': (x, y)
             }))
         
-        # Add ground foliage
-        num_foliage = self.config.get("num_foliage", 0)
+        # Add ground foliage - ensure integer conversion
+        try:
+            num_foliage = int(self.config.get("num_foliage", 0))
+        except (ValueError, TypeError):
+            self.logger.warning("SceneManager", f"Invalid num_foliage value: {self.config.get('num_foliage')}, defaulting to 0")
+            num_foliage = 0
+            
+        self.logger.info("SceneManager", f"Creating {num_foliage} foliage elements")
         for _ in range(num_foliage):
             x = random.uniform(-area_size/2, area_size/2)
             y = random.uniform(-area_size/2, area_size/2)
@@ -183,7 +207,8 @@ class SceneManager:
         }))
         
         self.total_objects = len(self.creation_tasks)
-        
+        self.logger.info("SceneManager", f"Generated {self.total_objects} creation tasks")
+    
     def _teleport_quadcopter_to_edge(self):
         """Teleport the quadcopter to the edge of the area (if it exists)"""
         try:
@@ -267,10 +292,11 @@ class SceneManager:
         self.random_object_manager = RandomObjectManager(SC.sim, area_size)
         
         # Explicitly set the dynamic object counts from config
-        num_birds = config.get("num_birds", 10)
-        num_falling_trees = config.get("num_falling_trees", 5)
-        tree_spawn_interval = config.get("tree_spawn_interval", 30.0)
-        bird_speed = config.get("bird_speed", 1.0)
+        # Ensure values are converted to the correct types
+        num_birds = int(config.get("num_birds", 10))
+        num_falling_trees = int(config.get("num_falling_trees", 5))
+        tree_spawn_interval = float(config.get("tree_spawn_interval", 30.0))
+        bird_speed = float(config.get("bird_speed", 1.0))
         
         self.logger.info("SceneManager", f"Setting dynamic objects from config: {num_birds} birds (speed: {bird_speed}), {num_falling_trees} trees, spawn: {tree_spawn_interval}s")
         

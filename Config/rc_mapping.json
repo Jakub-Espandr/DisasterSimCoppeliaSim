@@ -9,7 +9,7 @@
     },
     "pitch": {
         "axis": 1,
-        "invert": true
+        "invert": false
     },
     "roll": {
         "axis": 0,

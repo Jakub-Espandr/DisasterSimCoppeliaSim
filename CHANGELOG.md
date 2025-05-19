@@ -1,3 +1,33 @@
+## [V.1.3.3] - HyperDrive Insight - 2025-05-19
+
+###Added
+**- Depth Data Visualization in Main App:**  
+- Integrated button to load Depth Data Visualization Tool from main app (dataset tab)
+
+**- Preset Change Inspection Feature:** 
+- Implemented a system to inspect and highlight changes when loading a saved preset
+- Added automatic comparison of current and loaded configuration values
+- Visual indicators now display what settings are newly applied or differ from the current session
+
+###Changed
+**- Preset Handling Enhancements:**  
+- Improved loading logic to ensure all relevant modules are updated before scene manipulation
+- Added internal tracking of preset states to avoid redundant application of unchanged values
+
+###Fixed
+**- Object Creation After Preset Load:**  
+- Fixed issue where objects were not properly re-initialized after loading a new preset
+- Resolved inconsistency in object spawning caused by outdated references after reload
+- Ensured complete re-sync of scene entities with loaded configuration parameters
+---
+
+## [V.1.3.2B] - HyperDrive Pulse - 2025-05-17
+
+### Fixed
+- Hiding target for camera view and RGBD data collection.
+
+---
+
 ## [V.1.3.2] - HyperDrive Pulse - 2025-05-16
 
 ### Added
@@ -38,6 +68,8 @@
 - Added dynamic sleep calculation based on processing load
 - Reduced unnecessary updates with value change detection
 - Enhanced error recovery with small delays before retrying after errors
+
+---
 
 ## [V.1.3.1] - HyperDrive Sync - 2025-05-11
 

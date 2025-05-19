@@ -1,5 +1,5 @@
 {
-    "sensitivity": 4.0,
+    "sensitivity": 0.4,
     "deadzone": 0.15,
-    "yaw_sensitivity": 0.5
+    "yaw_sensitivity": 0.16
 }

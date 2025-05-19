@@ -540,15 +540,24 @@ class DepthDatasetCollector:
             
             # Use custom name if provided, otherwise use timestamp
             if custom_name:
-                # Make sure the filename is valid by removing special characters
-                custom_name = ''.join(c for c in custom_name if c.isalnum() or c in '._- ')
-                # Check if the name already has a .json extension
-                if not custom_name.lower().endswith('.json'):
-                    filename = f"{custom_name}.json"
+                # Special case for initial config - always save this as a separate file
+                if custom_name == "initial_config":
+                    filename = "initial_config.json"
+                # If it's "current_config", always overwrite the existing file
+                elif custom_name == "current_config":
+                    filename = "current_config.json"
+                # For other custom named configs, use the provided name
                 else:
-                    filename = custom_name
+                    # Make sure the filename is valid by removing special characters
+                    custom_name = ''.join(c for c in custom_name if c.isalnum() or c in '._- ')
+                    # Check if the name already has a .json extension
+                    if not custom_name.lower().endswith('.json'):
+                        filename = f"{custom_name}.json"
+                    else:
+                        filename = custom_name
             else:
-                filename = f"config_{timestamp}.json"
+                # Default to current_config.json
+                filename = "current_config.json"
                 
             filepath = os.path.join(self.config_folder, filename)
             

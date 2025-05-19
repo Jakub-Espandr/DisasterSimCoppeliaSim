@@ -222,8 +222,8 @@ def main():
     # Subscribe to config updates to save config to JSON when updated
     def on_config_save(key):
         if depth_collector:
-            depth_collector.save_config_to_json(config, f"update_{key}")
-            logger.debug_at_level(DEBUG_L2, "Main", f"Configuration saved after update to {key}")
+            depth_collector.save_config_to_json(config, "current_config")
+            logger.debug_at_level(DEBUG_L2, "Main", f"Configuration saved to current_config.json")
     
     EM.subscribe('config/updated', on_config_save)
 

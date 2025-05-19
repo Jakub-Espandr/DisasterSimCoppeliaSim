@@ -130,12 +130,12 @@ class RCControllerSettings:
             width=20
         ).pack(side="left")
         
-        # Yaw Sensitivity slider - change from 5% to 50%
+        # Yaw Sensitivity slider - change from 5% to 75%
         self.yaw_sensitivity_var = tk.DoubleVar(value=self.config.get("rc_yaw_sensitivity", 0.15))
         yaw_sensitivity_scale = ttk.Scale(
             yaw_sens_frame,
             from_=0.05,  # 5%
-            to=0.5,      # 50%
+            to=0.75,     # 75%
             orient="horizontal",
             variable=self.yaw_sensitivity_var,
             command=self._update_yaw_sensitivity_label
@@ -818,7 +818,7 @@ class RCControllerSettings:
         EM.publish('config/updated', 'rc_mappings')
     
     def destroy(self):
-        """Clean up resources when the panel is destroyed"""
+        """Clean up resources when component is destroyed"""
         # Unsubscribe from events
         EM.unsubscribe('config/updated', self._on_config_updated)
         EM.unsubscribe('rc/mappings_updated', self._on_mappings_updated)
@@ -826,4 +826,19 @@ class RCControllerSettings:
         # Remove UI elements
         if self.settings_frame:
             self.settings_frame.destroy()
-            self.settings_frame = None 
+            self.settings_frame = None
+    
+    def get_settings(self):
+        """
+        Get all RC controller settings as a dictionary
+        
+        Returns:
+            dict: Dictionary with all RC controller settings
+        """
+        settings = {
+            "rc_sensitivity": self.sensitivity_var.get() if hasattr(self, 'sensitivity_var') else self.config.get("rc_sensitivity", 1.0),
+            "rc_deadzone": self.deadzone_var.get() if hasattr(self, 'deadzone_var') else self.config.get("rc_deadzone", 0.1),
+            "rc_yaw_sensitivity": self.yaw_sensitivity_var.get() if hasattr(self, 'yaw_sensitivity_var') else self.config.get("rc_yaw_sensitivity", 0.15),
+            "rc_mappings": self.mappings if hasattr(self, 'mappings') and self.mappings else self.config.get("rc_mappings", {})
+        }
+        return settings 
