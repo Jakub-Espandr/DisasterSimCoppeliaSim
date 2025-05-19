@@ -1,3 +1,17 @@
+## [V.1.3.3C] - HyperDrive Insight - 2025-05-20
+
+###Added
+**- Improved batch management safety:**
+- Added safety mechanism to only allow batch removal when the simulation is stopped
+- Prevents potential data corruption from removing batches during active simulation
+
+###Fixed
+**- Fixed batch counter synchronization:**
+- Ensured batch counters are properly synchronized with the file system when creating a new scene
+- Fixed issue where new batches might not have the correct sequential numbering
+
+---
+
 ## [V.1.3.3B] - HyperDrive Insight - 2025-05-19
 
 ###Added
@@ -5,6 +19,7 @@
 - Implemented side-by-side display of current batch and scene batch numbers
 - Added refresh button to update batch information display
 - Created "Remove Batches From Current Scene" button with confirmation dialog
+- Improved safety by only allowing batch removal when simulation is not running
 
 **- Option to keep or remove fallen trees:** 
 - Added a toggle button in the configuration tab to allow users to choose whether fallen trees should be kept on the ground or removed during tree respawning

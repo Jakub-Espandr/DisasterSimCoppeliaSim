@@ -216,6 +216,9 @@ class DepthDatasetCollector:
         self.active = True
         self.logger.info("DepthCollector", "Scene creation completed. Activating data capture.")
         
+        # Make sure the batch counter is synchronized with the file system
+        self._load_or_find_latest_batch_number()
+        
         # Save the current batch number for reference when a new scene is created
         self._save_scene_batch_checkpoint()
         

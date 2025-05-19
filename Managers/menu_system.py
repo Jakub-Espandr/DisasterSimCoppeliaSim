@@ -80,7 +80,7 @@ class MenuSystem:
 
         # Build and style main window
         self.root = tk.Tk()
-        self.root.title("Disaster Simulation with Drone Navigation v1.3.3B - HyperDrive Insight")
+        self.root.title("Disaster Simulation with Drone Navigation v1.3.3C - HyperDrive Insight")
         self.root.geometry("700x900")  # Increased width to ensure all tabs are visible
         self.root.configure(bg="#1a1a1a")  # Dark background
         
@@ -579,7 +579,8 @@ class MenuSystem:
         EM.subscribe(SCENE_CLEARED, self._on_scene_cleared)
         
         # Handle scene creation requests from menus
-        EM.subscribe('scene/creation/request', self._on_scene_creation_request)
+        EM.subscribe('scene/request_creation', self._on_scene_creation_request)
+        
         EM.subscribe('simulation/frame', self._on_simulation_frame)
         EM.subscribe('simulation/shutdown', self.cleanup)
         
@@ -592,6 +593,10 @@ class MenuSystem:
         # Subscribe to victim detection events
         EM.subscribe('victim/detected', self._update_victim_indicator)
         
+        # Subscribe to dataset events
+        EM.subscribe('dataset/batch/saved', self._on_batch_saved)
+        EM.subscribe('dataset/config/updated', self._on_dataset_config_updated)
+
     def _force_ui_update(self, _):
         """Force the UI to update immediately"""
         try:
@@ -1404,6 +1409,11 @@ class MenuSystem:
                 else:
                     btn.configure(state="normal")  # Enable other buttons
             self.progress_bar.pack_forget()
+            
+            # Disable the Remove Batches button when scene is active
+            if hasattr(self, 'remove_batches_btn'):
+                self.remove_batches_btn.configure(state="disabled")
+                
             # Update simulation stats
             self._update_simulation_stats()
             
@@ -1456,7 +1466,15 @@ class MenuSystem:
                 if hasattr(self, 'scene_buttons'):
                     for btn in self.scene_buttons:
                         btn.configure(state="normal")
-                
+                        
+                # Enable the Remove Batches button if it exists
+                if hasattr(self, 'remove_batches_btn'):
+                    self.remove_batches_btn.configure(state="normal")
+                    
+                # Update simulation stats
+                if hasattr(self, '_update_simulation_stats'):
+                    self._update_simulation_stats()
+                    
             except Exception as e:
                 self.logger.error("MenuSystem", f"Error updating UI after scene clear: {e}")
         
@@ -1814,8 +1832,8 @@ class MenuSystem:
         version_frame.pack(fill="x", pady=10, padx=15)  # Increased padding
         
         version_info = """
-• Version: HyperDrive Insight v1.3.3B
-• Build: 19.05.2025
+• Version: HyperDrive Insight v1.3.3C
+• Build: 20.05.2025
         """
         version_label = ttk.Label(
             version_frame, 
@@ -3102,13 +3120,16 @@ class MenuSystem:
         refresh_btn.pack(fill="x", pady=5)
         
         # Remove Recent Batches button
-        remove_batches_btn = ttk.Button(batch_frame,
+        self.remove_batches_btn = ttk.Button(batch_frame,
                                      text="Remove Batches From Current Scene",
                                      command=self._remove_current_scene_batches,
                                      style="Cancel.TButton")
-        remove_batches_btn.pack(fill="x", pady=5)
+        self.remove_batches_btn.pack(fill="x", pady=5)
         
-        # Add button to open depth image viewer tool
+        # Initially disable the button until scene is cleared
+        self.remove_batches_btn.configure(state="disabled")
+        
+        # Tools Section
         viewer_frame = ttk.LabelFrame(parent, text="Tools", padding=15, labelanchor="n")
         viewer_frame.pack(fill="x", pady=10, padx=5)
         
@@ -3121,14 +3142,10 @@ class MenuSystem:
         open_viewer_btn.pack(fill="x", pady=10)
         
         # Status variable for operations (we'll keep this for directory changes and other operations)
-        self.config_status_var = tk.StringVar(value="")
-        
-        # Update batch numbers initially
-        self._update_batch_numbers()
-        
-        # Subscribe to dataset events - keep only those we still need
-        EM.subscribe('dataset/batch/saved', self._on_batch_saved)
-        EM.subscribe('dataset/config/updated', self._on_dataset_config_updated)
+        self.dataset_status_var = tk.StringVar(value="Ready")
+        self.dataset_status_label = ttk.Label(parent, textvariable=self.dataset_status_var,
+                                           font=("Segoe UI", 10))
+        self.dataset_status_label.pack(pady=10)
         
     def _update_batch_numbers(self):
         """Update the batch number information from files"""
