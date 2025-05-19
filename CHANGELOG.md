@@ -1,3 +1,35 @@
+## [V.1.3.3B] - HyperDrive Insight - 2025-05-19
+
+###Added
+**- Batch management in Dataset tab:** 
+- Implemented side-by-side display of current batch and scene batch numbers
+- Added refresh button to update batch information display
+- Created "Remove Batches From Current Scene" button with confirmation dialog
+
+**- Option to keep or remove fallen trees:** 
+- Added a toggle button in the configuration tab to allow users to choose whether fallen trees should be kept on the ground or removed during tree respawning
+
+###Changed
+**- Streamlined Dataset interface:** 
+- Eliminated entire Configuration section from Dataset tab
+- Updated help documentation to match actual application functionality
+
+**- Enhanced object management:** 
+- Modified RandomObjectManager to handle birds and falling trees separately
+- Improved memory management by isolating tree respawn from bird lifecycle
+
+###Fixed
+**- Fixed bird respawning issue:** 
+- Birds no longer respawn when falling trees are regenerated
+- Corrected undefined batch_counter_file variable
+- Improved error handling for batch file operations
+
+**- Fixed tree cleanup bug:**
+- Ensured old trees are properly deleted before spawning new ones
+- Implemented proper tree handle tracking and cleanup process
+
+---
+
 ## [V.1.3.3] - HyperDrive Insight - 2025-05-19
 
 ###Added
@@ -19,6 +51,7 @@
 - Fixed issue where objects were not properly re-initialized after loading a new preset
 - Resolved inconsistency in object spawning caused by outdated references after reload
 - Ensured complete re-sync of scene entities with loaded configuration parameters
+
 ---
 
 ## [V.1.3.2B] - HyperDrive Pulse - 2025-05-17

@@ -145,7 +145,7 @@ def check_target_visibility():
         target_handle = SC.sim.getObject('/target')
         visibility_status = {}
         all_invisible = True
-        
+        missing_props = []
         # Check various visibility properties
         properties_to_check = {
             "visible": False,           # Should be False
@@ -153,7 +153,6 @@ def check_target_visibility():
             "viewableObjects": False,   # Should be False
             "pointsVisible": False      # Should be False
         }
-        
         for prop_name, expected_value in properties_to_check.items():
             try:
                 value = SC.sim.getBoolProperty(target_handle, prop_name)
@@ -161,9 +160,8 @@ def check_target_visibility():
                 if value != expected_value:
                     all_invisible = False
             except Exception:
-                visibility_status[prop_name] = "Error reading property"
+                missing_props.append(prop_name)
                 all_invisible = False
-        
         # Try to get the model property as well
         try:
             model_props = SC.sim.getModelProperty(target_handle)
@@ -172,13 +170,14 @@ def check_target_visibility():
             if not is_model_invisible:
                 all_invisible = False
         except Exception:
-            visibility_status["model_invisible"] = "Error reading property"
+            missing_props.append("model_invisible")
             all_invisible = False
-            
-        # Log the results
-        logger.info("CaptureUtils", f"Target visibility check: {visibility_status}")
-        logger.info("CaptureUtils", f"Target is {'completely invisible' if all_invisible else 'VISIBLE in some way'}")
-        
+        # Only log if not all invisible
+        if not all_invisible:
+            logger.info("CaptureUtils", f"Target visibility check: {visibility_status}")
+            if missing_props:
+                logger.debug_at_level(2, "CaptureUtils", f"Missing or unreadable properties: {missing_props}")
+            logger.info("CaptureUtils", f"Target is {'completely invisible' if all_invisible else 'VISIBLE in some way'}")
         return all_invisible
     except Exception as e:
         logger.error("CaptureUtils", f"Error checking target visibility: {e}")

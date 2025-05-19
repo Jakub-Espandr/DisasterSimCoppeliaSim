@@ -96,8 +96,7 @@ class DepthDatasetCollector:
                  base_folder="depth_dataset",
                  batch_size=500,
                  save_every_n_frames=10,
-                 split_ratio=(0.98, 0.01, 0.01),
-                 use_timestamp_subfolder=True):
+                 split_ratio=(0.98, 0.01, 0.01)):
         """
         Main depth dataset collector.
         """
@@ -113,14 +112,6 @@ class DepthDatasetCollector:
         self.batch_size = batch_size
         self.save_every_n_frames = save_every_n_frames
         self.train_ratio, self.val_ratio, self.test_ratio = split_ratio
-        self.use_timestamp_subfolder = use_timestamp_subfolder
-
-        # Create timestamp subfolder if configured
-        if self.use_timestamp_subfolder:
-            timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            self.base_folder = os.path.join(self.base_folder, timestamp)
-            if self.verbose:
-                self.logger.debug_at_level(DEBUG_L1, "DepthCollector", f"Using timestamped folder: {self.base_folder}")
 
         # Buffers
         self.depths = []
@@ -135,9 +126,8 @@ class DepthDatasetCollector:
 
         # Counters
         self.global_frame_counter = 0
-        self.train_counter = 0
-        self.val_counter   = 0
-        self.test_counter  = 0
+        self.global_batch_counter = 0
+        self._load_or_find_latest_batch_number()
 
         # Control flags
         self.shutdown_requested = False
@@ -190,21 +180,15 @@ class DepthDatasetCollector:
             # Update the base folder
             self.base_folder = new_base_dir
             
-            # Add timestamp subfolder if configured
-            if self.use_timestamp_subfolder and 'use_timestamp' in data and data['use_timestamp']:
-                timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                self.base_folder = os.path.join(self.base_folder, timestamp)
-            
             # Re-setup the folder structure
             self._setup_folders()
             
-            # Reset counters for new dataset
-            self.train_counter = 0
-            self.val_counter = 0
-            self.test_counter = 0
+            # Find the latest batch number in the new directory
+            self._load_or_find_latest_batch_number()
             
             if self.verbose:
-                self.logger.debug_at_level(DEBUG_L1, "DepthCollector", f"Dataset directory changed to {self.base_folder}")
+                self.logger.debug_at_level(DEBUG_L1, "DepthCollector", 
+                                        f"Dataset directory changed to {self.base_folder}, latest batch: {self.global_batch_counter}")
             
             # Notify UI of the change
             EM.publish(DATASET_CONFIG_UPDATED, {
@@ -212,17 +196,15 @@ class DepthDatasetCollector:
                 'verbose': self.verbose
             })
             
-    def change_directory(self, new_base_dir, use_timestamp=True):
+    def change_directory(self, new_base_dir):
         """
         Change the dataset directory.
         
         Args:
             new_base_dir (str): New base directory for dataset storage
-            use_timestamp (bool): Whether to create a timestamp subfolder
         """
         EM.publish(DATASET_DIR_CHANGED, {
-            'base_dir': new_base_dir,
-            'use_timestamp': use_timestamp
+            'base_dir': new_base_dir
         })
       
     def set_base_folder(self, folder_path):
@@ -233,6 +215,9 @@ class DepthDatasetCollector:
         """Handle scene creation completion event"""
         self.active = True
         self.logger.info("DepthCollector", "Scene creation completed. Activating data capture.")
+        
+        # Save the current batch number for reference when a new scene is created
+        self._save_scene_batch_checkpoint()
         
     def _on_scene_cleared(self, _):
         """Handle scene cleared event by deactivating data collection"""
@@ -440,36 +425,88 @@ class DepthDatasetCollector:
                 
         self.logger.info("DepthCollector", "Background saving thread exiting")
 
+    def _load_or_find_latest_batch_number(self):
+        """
+        Determines the latest batch number by:
+        1. Checking if batch_counter.txt exists and reading it
+        2. If not, scanning all directories for batch_*.npz files and finding the highest number
+        """
+        counter_file = os.path.join(self.base_folder, "batch_counter.txt")
+        try:
+            # First try to load from counter file
+            if os.path.exists(counter_file):
+                with open(counter_file, "r") as f:
+                    self.global_batch_counter = int(f.read().strip())
+                    if self.verbose:
+                        self.logger.debug_at_level(DEBUG_L1, "DepthCollector", 
+                                                f"Loaded batch counter: {self.global_batch_counter}")
+                    return
+        except Exception as e:
+            self.logger.warning("DepthCollector", f"Could not read batch counter file: {e}")
+        
+        # If we get here, we need to scan directories
+        self.global_batch_counter = self._find_latest_batch_number()
+        self._save_batch_counter()  # Save it for next time
+        if self.verbose:
+            self.logger.debug_at_level(DEBUG_L1, "DepthCollector", 
+                                    f"Found latest batch number from files: {self.global_batch_counter}")
+
+    def _find_latest_batch_number(self):
+        """
+        Scans all split directories for batch_*.npz files and returns the highest batch number found.
+        Returns 0 if no batch files are found.
+        """
+        import glob
+        import re
+        
+        highest_batch = 0
+        batch_pattern = re.compile(r'batch_(\d+)\.npz$')
+        
+        # Check all split directories
+        for split_dir in [self.train_folder, self.val_folder, self.test_folder]:
+            if not os.path.exists(split_dir):
+                continue
+                
+            # Find all batch_*.npz files
+            batch_files = glob.glob(os.path.join(split_dir, "batch_*.npz"))
+            
+            for file in batch_files:
+                # Extract batch number from filename
+                match = batch_pattern.search(file)
+                if match:
+                    batch_num = int(match.group(1))
+                    highest_batch = max(highest_batch, batch_num)
+        
+        return highest_batch
+
+    def _save_batch_counter(self):
+        """Save the current batch counter to a file"""
+        counter_file = os.path.join(self.base_folder, "batch_counter.txt")
+        try:
+            with open(counter_file, "w") as f:
+                f.write(str(self.global_batch_counter))
+        except Exception as e:
+            self.logger.warning("DepthCollector", f"Could not save batch counter: {e}")
+
     def _save_batch(self, batch):
         """Save a batch of data as NPZ file"""
         try:
             depths = batch['depths']
             split = batch['split']
-            batch_id = np.min(batch['frames']) if len(batch['frames']) > 0 else 0
-            
-            # Get right folder
+            # Use global batch counter for naming
+            self.global_batch_counter += 1
+            self._save_batch_counter()
+            batch_id = self.global_batch_counter
             if split == 'train':
-                self.train_counter += 1
                 folder = self.train_folder
-                counter = self.train_counter
             elif split == 'val':
-                self.val_counter += 1
                 folder = self.val_folder
-                counter = self.val_counter
-            else:  # test
-                self.test_counter += 1
+            else:
                 folder = self.test_folder
-                counter = self.test_counter
-                
-            # Generate filename based on split and batch ID
-            filename = f"{split}_batch_{batch_id:06d}.npz"
+            filename = f"batch_{batch_id:06d}.npz"
             filepath = os.path.join(folder, filename)
-            
-            # Save file
             save_batch_npz(filepath, batch)
-            
-            total_saved = self.train_counter + self.val_counter + self.test_counter
-            
+            total_saved = self.global_batch_counter
             # Publish event for UI update
             try:
                 EM.publish(DATASET_BATCH_SAVED, {
@@ -477,11 +514,10 @@ class DepthDatasetCollector:
                     'split': split,
                     'count': len(depths),
                     'total_saved': total_saved,
-                    'is_background_thread': True  # Indicate this is from background thread
+                    'is_background_thread': True
                 })
             except Exception as e:
                 self.logger.error("DepthCollector", f"Error publishing batch event: {e}")
-                
         except Exception as e:
             self.logger.error("DepthCollector", f"Error saving batch: {e}")
             EM.publish(DATASET_BATCH_ERROR, {
@@ -570,3 +606,19 @@ class DepthDatasetCollector:
         except Exception as e:
             self.logger.error("DepthCollector", f"Error saving configuration: {e}")
             return None
+
+    def _save_scene_batch_checkpoint(self):
+        """
+        Saves the current batch number to a file when a new scene is created.
+        This allows tracking which batch numbers correspond to which scene creation events.
+        """
+        scene_batch_file = os.path.join(self.base_folder, "scene_batch_number.txt")
+        
+        try:
+            # Simply write the current batch number to the file
+            with open(scene_batch_file, "w") as f:
+                f.write(str(self.global_batch_counter))
+                
+            self.logger.info("DepthCollector", f"Scene batch number saved: {self.global_batch_counter}")
+        except Exception as e:
+            self.logger.warning("DepthCollector", f"Could not save scene batch number: {e}")

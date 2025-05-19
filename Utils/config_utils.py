@@ -11,6 +11,7 @@ FIELDS = [
     {"key": "num_birds",         "desc": "Number of birds",          "type": int},
     {"key": "num_falling_trees", "desc": "Number of falling trees",  "type": int},
     {"key": "tree_spawn_interval", "desc": "Tree spawn interval [s]", "type": float},
+    {"key": "keep_fallen_trees", "desc": "Keep fallen trees on ground", "type": bool},
     {"key": "bird_speed",        "desc": "Bird movement speed",      "type": float},
     {"key": "clear_zone_radius", "desc": "Clear zone radius [m]",    "type": float},
     {"key": "move_step",         "desc": "Drone move step [m]",      "type": float},
@@ -43,6 +44,7 @@ def get_default_config():
         "num_birds": 10,           
         "num_falling_trees": 5,   
         "tree_spawn_interval": 30.0,
+        "keep_fallen_trees": False,  # Default to removing fallen trees
         "bird_speed": 1.0,
         "clear_zone_center": (0, 0),
         "clear_zone_radius": 0.5,

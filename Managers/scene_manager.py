@@ -297,8 +297,9 @@ class SceneManager:
         num_falling_trees = int(config.get("num_falling_trees", 5))
         tree_spawn_interval = float(config.get("tree_spawn_interval", 30.0))
         bird_speed = float(config.get("bird_speed", 1.0))
+        keep_fallen_trees = bool(config.get("keep_fallen_trees", False))
         
-        self.logger.info("SceneManager", f"Setting dynamic objects from config: {num_birds} birds (speed: {bird_speed}), {num_falling_trees} trees, spawn: {tree_spawn_interval}s")
+        self.logger.info("SceneManager", f"Setting dynamic objects from config: {num_birds} birds (speed: {bird_speed}), {num_falling_trees} trees, spawn: {tree_spawn_interval}s, keep fallen trees: {keep_fallen_trees}")
         
         # Update the RandomObjectManager with these values
         # Note: This internally calls _update_objects() which clears and creates objects,
@@ -307,7 +308,8 @@ class SceneManager:
             num_birds=num_birds,
             num_falling_trees=num_falling_trees,
             tree_spawn_interval=tree_spawn_interval,
-            bird_speed=bird_speed
+            bird_speed=bird_speed,
+            keep_fallen_trees=keep_fallen_trees
         )
         
         # Try to teleport quadcopter if it exists

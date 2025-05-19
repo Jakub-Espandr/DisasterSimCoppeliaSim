@@ -20,6 +20,7 @@ class RandomObjectManager:
         self.falling_trees = []
         self.created_objects = []
         self.logger = get_logger()  # Initialize logger
+        self.keep_fallen_trees = False  # Default to removing fallen trees
 
         self.last_update = time.time()
         self.change_interval = 3.0
@@ -96,8 +97,44 @@ class RandomObjectManager:
 
         # Create falling trees
         self.logger.info("RandomObjectManager", f"Creating {self.num_falling_trees} falling trees")
+        self._create_falling_trees()
+        
+    def _create_falling_trees(self):
+        """Create only the falling trees"""
         for _ in range(self.num_falling_trees):
             self._create_single_tree()
+            
+    def _clear_falling_trees(self):
+        """Clear only the falling trees, not birds"""
+        self.logger.info("RandomObjectManager", f"Clearing {len(self.falling_trees)} falling trees")
+        
+        # Remove all tree objects
+        for tree in self.falling_trees:
+            if not tree["removed"]:
+                try:
+                    self.sim.removeObject(tree["handle"])
+                    tree["removed"] = True
+                except Exception as e:
+                    self.logger.error("RandomObjectManager", f"Error removing tree: {e}")
+        
+        # Clear the falling trees list
+        self.falling_trees = []
+        
+        # Remove tree objects from created_objects list (but keep birds)
+        # Since we can't easily identify which objects are trees vs birds in created_objects,
+        # we'll recreate the created_objects list with just the birds
+        bird_objects = []
+        for bird in self.birds:
+            try:
+                # Check if bird handle is still valid
+                if self.sim.isHandleValid(bird):
+                    bird_objects.append(bird)
+            except Exception:
+                pass
+                
+        self.created_objects = bird_objects
+        
+        self.logger.info("RandomObjectManager", "Falling trees cleared.")
 
     def _create_single_tree(self):
         trunk_height = random.uniform(2.5, 4.5)
@@ -138,8 +175,63 @@ class RandomObjectManager:
         # Check if it's time to spawn a new batch of trees
         if current_time - self.last_tree_spawn > self.tree_spawn_interval:
             self.logger.info("RandomObjectManager", f"Spawning new batch of {self.num_falling_trees} trees")
-            self.clear_objects()  # Clear existing objects
-            self.create_object()  # Create new objects
+            
+            # Only clear falling trees if keep_fallen_trees is False
+            if not self.keep_fallen_trees:
+                self.logger.info("RandomObjectManager", "Removing old fallen trees (keep_fallen_trees=False)")
+                
+                # IMPORTANT: Force remove ALL existing trees before creating new ones
+                # First, identify bird-related components to preserve
+                bird_components = []
+                for bird in self.birds:
+                    try:
+                        if self.sim.isHandleValid(bird):
+                            # Add the bird itself
+                            bird_components.append(bird)
+                            # Add all child objects of each bird (beak and wings)
+                            child_objects = self.sim.getObjectsInTree(bird, self.sim.handle_all)
+                            if child_objects:
+                                bird_components.extend(child_objects)
+                    except Exception as e:
+                        self.logger.error("RandomObjectManager", f"Error getting bird components: {e}")
+                
+                self.logger.info("RandomObjectManager", f"Preserving {len(bird_components)} bird components")
+                
+                # Clear all objects in created_objects that aren't bird components
+                non_bird_objects = [obj for obj in self.created_objects if obj not in bird_components]
+                for obj in non_bird_objects:
+                    try:
+                        # Check if handle is valid before trying to remove
+                        if self.sim.isHandleValid(obj):
+                            self.sim.removeObject(obj)
+                    except Exception as e:
+                        self.logger.error("RandomObjectManager", f"Error removing object: {e}")
+                
+                # Now specifically clear tree handles from falling_trees
+                for tree in self.falling_trees:
+                    if not tree["removed"]:
+                        try:
+                            # Check if handle is valid before trying to remove
+                            if self.sim.isHandleValid(tree["handle"]):
+                                self.sim.removeObject(tree["handle"])
+                            tree["removed"] = True
+                        except Exception as e:
+                            self.logger.error("RandomObjectManager", f"Error removing tree during respawn: {e}")
+                
+                # Update created_objects list to contain only bird components
+                self.created_objects = [obj for obj in self.created_objects if obj in bird_components]
+                
+                # Clear falling trees list
+                self.falling_trees = []
+            else:
+                self.logger.info("RandomObjectManager", "Keeping old fallen trees (keep_fallen_trees=True)")
+                # Mark all fully fallen trees as "removed" so they won't be animated anymore
+                for tree in self.falling_trees:
+                    if tree["angle"] >= math.radians(90) and not tree["removed"]:
+                        tree["removed"] = True
+            
+            # Now create new trees
+            self._create_falling_trees()  # Only create new trees
             self.last_tree_spawn = current_time
 
         for i, bird in enumerate(self.birds):
@@ -195,33 +287,7 @@ class RandomObjectManager:
             except Exception as e:
                 self.logger.error("RandomObjectManager", f"Error animating tree: {e}")
 
-        # Check and maintain tree count - fixed by moving outside the time interval check
-        active_trees = len([t for t in self.falling_trees if not t["removed"]])
-        while active_trees < self.num_falling_trees:
-            self._create_single_tree()
-            active_trees += 1
-
-    def clear_objects(self):
-        """Clear all dynamic objects"""
-        self.logger.info("RandomObjectManager", f"Clearing {len(self.birds)} birds and {len(self.falling_trees)} trees")
-        
-        # Clear birds
-        for obj in self.created_objects:
-            try:
-                self.sim.removeObject(obj)
-            except Exception as e:
-                self.logger.error("RandomObjectManager", f"Error removing object: {e}")
-        
-        # Reset all tracking lists
-        self.birds = []
-        self.directions = []
-        self.vertical_speeds = []
-        self.falling_trees = []
-        self.created_objects = []
-        
-        self.logger.info("RandomObjectManager", "All objects cleared.")
-            
-    def set_object_counts(self, num_birds=None, num_falling_trees=None, tree_spawn_interval=None, bird_speed=None):
+    def set_object_counts(self, num_birds=None, num_falling_trees=None, tree_spawn_interval=None, bird_speed=None, keep_fallen_trees=None):
         """Update the counts of dynamic objects"""
         if num_birds is not None:
             try:
@@ -250,6 +316,14 @@ class RandomObjectManager:
             except (ValueError, TypeError):
                 self.logger.error("RandomObjectManager", f"Invalid bird_speed value: {bird_speed}. Must be convertible to float.")
                 self.bird_speed = 1.0
+                
+        if keep_fallen_trees is not None:
+            try:
+                self.keep_fallen_trees = bool(keep_fallen_trees)
+                self.logger.info("RandomObjectManager", f"Set keep_fallen_trees to {self.keep_fallen_trees}")
+            except (ValueError, TypeError):
+                self.logger.error("RandomObjectManager", f"Invalid keep_fallen_trees value: {keep_fallen_trees}")
+                self.keep_fallen_trees = False
             
         self._update_objects()
             
@@ -258,3 +332,23 @@ class RandomObjectManager:
         # For simplicity, just clear and recreate all objects
         self.clear_objects()
         self.create_object()
+
+    def clear_objects(self):
+        """Clear all dynamic objects"""
+        self.logger.info("RandomObjectManager", f"Clearing {len(self.birds)} birds and {len(self.falling_trees)} trees")
+        
+        # Clear birds
+        for obj in self.created_objects:
+            try:
+                self.sim.removeObject(obj)
+            except Exception as e:
+                self.logger.error("RandomObjectManager", f"Error removing object: {e}")
+        
+        # Reset all tracking lists
+        self.birds = []
+        self.directions = []
+        self.vertical_speeds = []
+        self.falling_trees = []
+        self.created_objects = []
+        
+        self.logger.info("RandomObjectManager", "All objects cleared.")

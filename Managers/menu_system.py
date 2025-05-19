@@ -80,7 +80,7 @@ class MenuSystem:
 
         # Build and style main window
         self.root = tk.Tk()
-        self.root.title("Disaster Simulation with Drone Navigation v1.3.3 - HyperDrive Insight")
+        self.root.title("Disaster Simulation with Drone Navigation v1.3.3B - HyperDrive Insight")
         self.root.geometry("700x900")  # Increased width to ensure all tabs are visible
         self.root.configure(bg="#1a1a1a")  # Dark background
         
@@ -710,7 +710,7 @@ class MenuSystem:
         
         self.logger.debug_at_level(DEBUG_L2, "MenuSystem", f"Tab changed to: {tab_name}")
         
-        if tab_name == "Performance" or tab_name == "Monitor":
+        if tab_name == "Monitor":
             # Resume monitoring only if needed
             if self.config.get("enable_performance_monitoring", False):
                 self._resume_monitoring()
@@ -723,6 +723,10 @@ class MenuSystem:
         elif tab_name == "Config":
             # Update config values
             self._on_config_updated_gui(None)
+        elif tab_name == "Dataset":
+            # Update batch numbers when Dataset tab is selected
+            if hasattr(self, '_update_batch_numbers'):
+                self._update_batch_numbers()
             
         # Force a single update
         self.root.update_idletasks()
@@ -752,8 +756,8 @@ class MenuSystem:
             current_time = time.time()
             self._frame_times.append(current_time)
             
-            # Only update the UI if we're on the Performance tab
-            if self._current_tab == "Performance" or self._current_tab == "Monitor":
+            # Only update the UI if we're on the Monitor tab
+            if self._current_tab == "Monitor":
                 if current_time - self._last_ui_update >= 0.1:  # 100ms update interval
                     self._last_ui_update = current_time
                     self._update_performance_metrics()
@@ -1035,6 +1039,22 @@ class MenuSystem:
         bird_speed_entry.bind('<FocusOut>', lambda e: self._update_config("bird_speed", bird_speed_var.get()))
         self._config_vars["bird_speed"] = bird_speed_var
         self._config_widgets["bird_speed"] = bird_speed_entry
+        
+        # Keep Fallen Trees toggle
+        keep_trees_frame = ttk.Frame(dynamic_frame)
+        keep_trees_frame.pack(fill="x", pady=5)
+        ttk.Label(keep_trees_frame, text="Keep Fallen Trees:", width=25, style="TLabel", font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 10))
+        keep_trees_var = tk.BooleanVar(value=self.config.get("keep_fallen_trees", False))
+        keep_trees_chk = ttk.Checkbutton(keep_trees_frame, variable=keep_trees_var)
+        keep_trees_chk.pack(side="left", fill="x", expand=True)
+        keep_trees_var.trace_add('write', lambda *_: self._update_config("keep_fallen_trees", keep_trees_var.get()))
+        self._config_vars["keep_fallen_trees"] = keep_trees_var
+        self._config_widgets["keep_fallen_trees"] = keep_trees_chk
+        
+        # Add a tooltip or help text for the keep fallen trees option
+        keep_trees_info = ttk.Label(dynamic_frame, text="Note: When checked, fallen trees will stay on the ground instead of being removed when new trees spawn", 
+                                   style="Small.TLabel", foreground="#aaaaaa")
+        keep_trees_info.pack(fill="x", padx=10, pady=(0, 5))
 
         # Environment Settings Section with centered title
         env_frame = ttk.LabelFrame(scrollable_frame, text="Environment Settings", padding=15, labelanchor="n")
@@ -1160,26 +1180,29 @@ class MenuSystem:
             num_trees = max(0, int(self._config_vars["num_falling_trees"].get()))
             tree_spawn = max(5.0, float(self._config_vars["tree_spawn_interval"].get()))
             bird_speed = max(0.1, min(5.0, float(self._config_vars["bird_speed"].get())))  # Limit speed between 0.1 and 5.0
+            keep_fallen_trees = bool(self._config_vars["keep_fallen_trees"].get())
             
             # Update the config
             self.config["num_birds"] = num_birds
             self.config["num_falling_trees"] = num_trees
             self.config["tree_spawn_interval"] = tree_spawn
             self.config["bird_speed"] = bird_speed
+            self.config["keep_fallen_trees"] = keep_fallen_trees
             
             # Update RandomObjectManager if it exists
             from Managers.scene_manager import get_scene_manager
             SM = get_scene_manager()
             if hasattr(SM, 'random_object_manager') and SM.random_object_manager:
-                self.logger.info("MenuSystem", f"Setting counts: {num_birds} birds (speed: {bird_speed}), {num_trees} trees, spawn: {tree_spawn}s")
+                self.logger.info("MenuSystem", f"Setting counts: {num_birds} birds (speed: {bird_speed}), {num_trees} trees, spawn: {tree_spawn}s, keep fallen trees: {keep_fallen_trees}")
                 SM.random_object_manager.set_object_counts(
                     num_birds=int(num_birds), 
                     num_falling_trees=int(num_trees),
                     tree_spawn_interval=float(tree_spawn),
-                    bird_speed=float(bird_speed)
+                    bird_speed=float(bird_speed),
+                    keep_fallen_trees=keep_fallen_trees
                 )
                 self.status_label.configure(text=f"Updated: {num_birds} birds (speed: {bird_speed}), {num_trees} trees, spawn: {tree_spawn}s")
-                self.root.after(1000, lambda: self.status_label.configure(text=""))
+                self.root.after(3000, lambda: self.status_label.configure(text=""))
                 # Update simulation stats
                 self._update_simulation_stats()
             else:
@@ -1383,6 +1406,10 @@ class MenuSystem:
             self.progress_bar.pack_forget()
             # Update simulation stats
             self._update_simulation_stats()
+            
+            # Update batch numbers to reflect the new scene's batch number
+            if hasattr(self, '_update_batch_numbers'):
+                self.root.after(500, self._update_batch_numbers)  # slight delay to let files update
         
         # Schedule the update on the main thread
         self.root.after(0, update_ui)
@@ -1787,7 +1814,7 @@ class MenuSystem:
         version_frame.pack(fill="x", pady=10, padx=15)  # Increased padding
         
         version_info = """
-• Version: HyperDrive Insight v1.3.3
+• Version: HyperDrive Insight v1.3.3B
 • Build: 19.05.2025
         """
         version_label = ttk.Label(
@@ -1879,6 +1906,8 @@ class MenuSystem:
   - Bird Movement Speed: Sets how fast birds fly (0.1-5.0)
   - Number of Falling Trees: Sets how many trees will randomly fall
   - Tree Spawn Interval: Time between tree spawns (in seconds)
+  - Keep Fallen Trees: Select whether trees remain on ground after falling or are removed
+  - Note: Birds and falling trees are managed separately
 
 • Environment Settings:
   - Number of Static Trees: Sets the number of non-falling trees
@@ -1999,17 +2028,20 @@ class MenuSystem:
   - Select Directory: Change the directory where captures are saved
   - Uses timestamped subfolders for organization
 
+• Batch Information:
+  - Current Batch: Displays the latest batch number that was created
+  - Scene Batch: Shows the batch number when the current scene was created
+  - Refresh Batch Information: Updates the displayed batch numbers
+  - Remove Batches From Current Scene: Deletes all batches created after the scene batch number
+
 • Dataset Collection:
   - Automatically captures depth images during simulation
   - Organizes data into train/val/test splits
   - Stores depth maps, poses, and victim direction vectors
   - Includes distance-to-victim measurements
 
-• Configuration Saving:
-  - Application automatically saves configuration to "config" subfolder
-  - Configuration is saved at startup and whenever settings are changed
-  - Save Configuration As: Save current settings with a custom name
-  - Configuration files are stored in the dataset's config subfolder
+• Tools:
+  - Open Depth Image Viewer: Launch a tool to examine and manipulate captured depth images
         """
         dataset_label = ttk.Label(
             dataset_frame, 
@@ -2151,7 +2183,7 @@ class MenuSystem:
 
 • Tab Navigation:
   - Click tabs to switch between different sections
-  - Some tabs provide real-time monitoring when selected
+  - Some tabs provide real-time updates when selected
         """
         shortcuts_label = ttk.Label(
             shortcuts_frame, 
@@ -3043,19 +3075,38 @@ class MenuSystem:
                                  command=self._select_dataset_directory)
         select_dir_btn.pack(fill="x")
         
-        # Configuration Section
-        config_frame = ttk.LabelFrame(parent, text="Configuration", padding=15, labelanchor="n")
-        config_frame.pack(fill="x", pady=10, padx=5)
+        # Batch Information Section
+        batch_frame = ttk.LabelFrame(parent, text="Batch Information", padding=15, labelanchor="n")
+        batch_frame.pack(fill="x", pady=10, padx=5)
         
-        # Description text
-        ttk.Label(config_frame, text="The application automatically saves configuration to a 'config' subfolder in the dataset directory when starting and when settings are changed.", 
-                wraplength=500, justify="left").pack(pady=5)
+        # Single row for batch numbers, side by side
+        batch_numbers_frame = ttk.Frame(batch_frame)
+        batch_numbers_frame.pack(fill="x", pady=5)
         
-        # Manual save button
-        save_config_btn = ttk.Button(config_frame, 
-                                  text="Save Configuration As...", 
-                                  command=self._save_config_to_dataset)
-        save_config_btn.pack(fill="x", pady=10)
+        # Current batch number (left side)
+        ttk.Label(batch_numbers_frame, text="Current Batch:", width=15).pack(side="left", padx=(0, 5))
+        self.current_batch_var = tk.StringVar(value="N/A")
+        ttk.Label(batch_numbers_frame, textvariable=self.current_batch_var, 
+                font=("Segoe UI", 10, "bold"), width=8).pack(side="left", padx=(0, 15))
+        
+        # Scene batch number (right side)
+        ttk.Label(batch_numbers_frame, text="Scene Batch:", width=15).pack(side="left", padx=(5, 5))
+        self.scene_batch_var = tk.StringVar(value="N/A")
+        ttk.Label(batch_numbers_frame, textvariable=self.scene_batch_var, 
+                font=("Segoe UI", 10, "bold"), width=8).pack(side="left")
+        
+        # Refresh button
+        refresh_btn = ttk.Button(batch_frame,
+                               text="Refresh Batch Information",
+                               command=self._update_batch_numbers)
+        refresh_btn.pack(fill="x", pady=5)
+        
+        # Remove Recent Batches button
+        remove_batches_btn = ttk.Button(batch_frame,
+                                     text="Remove Batches From Current Scene",
+                                     command=self._remove_current_scene_batches,
+                                     style="Cancel.TButton")
+        remove_batches_btn.pack(fill="x", pady=5)
         
         # Add button to open depth image viewer tool
         viewer_frame = ttk.LabelFrame(parent, text="Tools", padding=15, labelanchor="n")
@@ -3069,16 +3120,58 @@ class MenuSystem:
                                    command=self._open_depth_image_viewer)
         open_viewer_btn.pack(fill="x", pady=10)
         
-        # Status label for configuration saving
+        # Status variable for operations (we'll keep this for directory changes and other operations)
         self.config_status_var = tk.StringVar(value="")
-        config_status_label = ttk.Label(config_frame, textvariable=self.config_status_var, 
-                                     font=("Segoe UI", 10, "italic"))
-        config_status_label.pack(pady=5)
+        
+        # Update batch numbers initially
+        self._update_batch_numbers()
         
         # Subscribe to dataset events - keep only those we still need
         EM.subscribe('dataset/batch/saved', self._on_batch_saved)
         EM.subscribe('dataset/config/updated', self._on_dataset_config_updated)
-    
+        
+    def _update_batch_numbers(self):
+        """Update the batch number information from files"""
+        try:
+            # Get depth collector
+            depth_collector = SC.get_depth_collector()
+            if not depth_collector:
+                self.current_batch_var.set("N/A - Create scene first")
+                self.scene_batch_var.set("N/A - Create scene first")
+                return
+                
+            # Get the dataset directory
+            dataset_dir = self.dataset_dir_var.get()
+            
+            # Read current batch number from batch_counter.txt
+            current_batch = "0"
+            batch_counter_file = os.path.join(dataset_dir, "batch_counter.txt")
+            if os.path.exists(batch_counter_file):
+                try:
+                    with open(batch_counter_file, "r") as f:
+                        current_batch = f.read().strip()
+                except Exception as e:
+                    self.logger.warning("MenuSystem", f"Error reading batch counter: {e}")
+            
+            # Read scene batch number from scene_batch_number.txt
+            scene_batch = "N/A"
+            scene_batch_file = os.path.join(dataset_dir, "scene_batch_number.txt")
+            if os.path.exists(scene_batch_file):
+                try:
+                    with open(scene_batch_file, "r") as f:
+                        scene_batch = f.read().strip()
+                except Exception as e:
+                    self.logger.warning("MenuSystem", f"Error reading scene batch number: {e}")
+            
+            # Update UI variables
+            self.current_batch_var.set(current_batch)
+            self.scene_batch_var.set(scene_batch)
+            
+        except Exception as e:
+            self.logger.error("MenuSystem", f"Error updating batch numbers: {e}")
+            self.current_batch_var.set("Error")
+            self.scene_batch_var.set("Error")
+            
     def _save_config_to_dataset(self):
         """Save the current configuration to the dataset directory with a custom name"""
         try:
@@ -3305,6 +3398,15 @@ class MenuSystem:
                     self.dataset_stats_label.config(
                         text=f"Total: {total_saved} images"
                     )
+                    
+                # Update batch number display if we have the variable
+                if hasattr(self, 'current_batch_var'):
+                    self.current_batch_var.set(str(batch_id))
+                    
+                # Optionally refresh all batch information
+                if self._current_tab == "Dataset" and hasattr(self, '_update_batch_numbers'):
+                    self._update_batch_numbers()
+                    
             except Exception as e:
                 # Don't log TclError about main thread, as these are expected
                 if not isinstance(e, tk.TclError) or "main thread is not in main loop" not in str(e):
@@ -4176,4 +4278,147 @@ For example:
             command=dialog.destroy,
             width=15
         ).pack(pady=15)
+
+    def _remove_current_scene_batches(self):
+        """Remove all batches created after the current scene batch number"""
+        try:
+            # Get depth collector
+            depth_collector = SC.get_depth_collector()
+            if not depth_collector:
+                self.status_label.configure(text="No depth collector available. Please create a scene first.")
+                self.root.after(3000, lambda: self.status_label.configure(text=""))
+                return
+            
+            # Get the dataset directory
+            dataset_dir = self.dataset_dir_var.get()
+            
+            # Get the current scene batch number
+            scene_batch_file = os.path.join(dataset_dir, "scene_batch_number.txt")
+            if not os.path.exists(scene_batch_file):
+                self.status_label.configure(text="No scene batch number file found.")
+                self.root.after(3000, lambda: self.status_label.configure(text=""))
+                return
+                
+            # Read scene batch number
+            try:
+                with open(scene_batch_file, "r") as f:
+                    scene_batch = f.read().strip()
+                scene_batch = int(scene_batch)
+            except Exception as e:
+                self.logger.error("MenuSystem", f"Error reading scene batch number: {e}")
+                self.status_label.configure(text=f"Error reading scene batch number: {str(e)}")
+                self.root.after(3000, lambda: self.status_label.configure(text=""))
+                return
+            
+            # Get current batch number
+            batch_counter_file = os.path.join(dataset_dir, "batch_counter.txt")
+            try:
+                with open(batch_counter_file, "r") as f:
+                    current_batch = int(f.read().strip())
+            except Exception as e:
+                self.logger.error("MenuSystem", f"Error reading batch counter: {e}")
+                self.status_label.configure(text=f"Error reading batch counter: {str(e)}")
+                self.root.after(3000, lambda: self.status_label.configure(text=""))
+                return
+            
+            # Create a confirmation dialog
+            dialog = tk.Toplevel(self.root)
+            dialog.title("Confirm Batch Removal")
+            dialog.geometry("400x200")
+            dialog.transient(self.root)
+            dialog.grab_set()  # Make dialog modal
+            
+            # Center dialog on parent window
+            dialog.update_idletasks()
+            x = self.root.winfo_x() + (self.root.winfo_width() - dialog.winfo_width()) // 2
+            y = self.root.winfo_y() + (self.root.winfo_height() - dialog.winfo_height()) // 2
+            dialog.geometry(f"+{x}+{y}")
+            
+            # Add padding frame
+            frame = ttk.Frame(dialog, padding=20)
+            frame.pack(expand=True, fill="both")
+            
+            # Warning message
+            message = f"This will remove all batches from {scene_batch+1} to {current_batch}.\nAre you sure you want to continue?"
+            ttk.Label(frame, 
+                     text=message,
+                     font=("Segoe UI", 11),
+                     wraplength=350,
+                     justify="center").pack(pady=(0, 20))
+            
+            # Buttons frame
+            btn_frame = ttk.Frame(frame)
+            btn_frame.pack(fill="x", pady=(0, 10))
+            
+            # No button
+            no_btn = ttk.Button(btn_frame,
+                             text="Cancel",
+                             command=dialog.destroy)
+            no_btn.pack(side="left", expand=True, padx=(0, 5), fill="both", ipady=5)
+            
+            # Yes button
+            yes_btn = ttk.Button(btn_frame, 
+                              text="Yes, Delete Batches",
+                              style="Cancel.TButton",
+                              command=lambda: self._confirm_remove_batches(dialog, scene_batch, current_batch))
+            yes_btn.pack(side="left", expand=True, padx=(5, 0), fill="both", ipady=5)
+            
+        except Exception as e:
+            self.logger.error("MenuSystem", f"Error preparing batch removal: {e}")
+            self.status_label.configure(text=f"Error: {str(e)}")
+            self.root.after(3000, lambda: self.status_label.configure(text=""))
+            
+    def _confirm_remove_batches(self, dialog, scene_batch, current_batch):
+        """Actually remove the batches after confirmation"""
+        dialog.destroy()
+        
+        # Show progress in status bar
+        self.status_label.configure(text="Removing batches... Please wait.")
+        
+        try:
+            # Get the dataset directory
+            dataset_dir = self.dataset_dir_var.get()
+            
+            # Define the batch counter file path
+            batch_counter_file = os.path.join(dataset_dir, "batch_counter.txt")
+            
+            # Define the folders to check
+            folders = ["train", "val", "test"]
+            removed_count = 0
+            
+            # Process each folder
+            for folder in folders:
+                folder_path = os.path.join(dataset_dir, folder)
+                if not os.path.exists(folder_path):
+                    continue
+                
+                # Find batch files to remove (format: batch_000XXX.npz)
+                for batch_id in range(scene_batch + 1, current_batch + 1):
+                    # Format batch number with leading zeros (6 digits)
+                    batch_str = f"{batch_id:06d}"
+                    batch_file = os.path.join(folder_path, f"batch_{batch_str}.npz")
+                    
+                    if os.path.exists(batch_file):
+                        try:
+                            os.remove(batch_file)
+                            removed_count += 1
+                            self.logger.info("MenuSystem", f"Removed batch file: {batch_file}")
+                        except Exception as e:
+                            self.logger.error("MenuSystem", f"Error removing batch file {batch_file}: {e}")
+            
+            # Reset the batch counter to the scene batch number
+            with open(batch_counter_file, "w") as f:
+                f.write(str(scene_batch))
+                
+            # Update our batch display
+            self.current_batch_var.set(str(scene_batch))
+            
+            # Show completion message
+            self.status_label.configure(text=f"Removed {removed_count} batch files. Batch counter reset to {scene_batch}.")
+            self.root.after(5000, lambda: self.status_label.configure(text=""))
+            
+        except Exception as e:
+            self.logger.error("MenuSystem", f"Error removing batches: {e}")
+            self.status_label.configure(text=f"Error: {str(e)}")
+            self.root.after(3000, lambda: self.status_label.configure(text=""))
 
