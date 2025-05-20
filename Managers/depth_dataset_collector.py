@@ -98,69 +98,73 @@ class DepthDatasetCollector:
                  save_every_n_frames=10,
                  split_ratio=(0.98, 0.01, 0.01)):
         """
-        Main depth dataset collector.
-        """
-        # Initialize logger
-        self.logger = get_logger()
+        Initialize the depth dataset collector.
         
-        # Verbose logging flag from configuration
-        self.verbose = get_default_config().get('verbose', False)
-        # Listen for config updates
-        EM.subscribe('config/updated', self._on_config_updated)
+        Args:
+            sensor_handle: Handle to the vision sensor for depth capture
+            base_folder: Base folder for dataset storage
+            batch_size: Number of frames per batch
+            save_every_n_frames: Capture frequency (every N frames)
+            split_ratio: Train/val/test split ratio as tuple (train, val, test)
+        """
+        self.logger = get_logger()
         self.sensor_handle = sensor_handle
-        self.base_folder = base_folder
+        
+        # Get config for verbose flag, defaults to False for less noise
+        config = get_default_config()
+        self.verbose = config.get('verbose', False)
+        
+        # Define directories
+        cwd = os.getcwd()
+        data_dir = os.path.join(cwd, "data")
+        self.base_folder = os.path.join(data_dir, base_folder)
+        self.train_folder = os.path.join(self.base_folder, "train")
+        self.val_folder = os.path.join(self.base_folder, "val")
+        self.test_folder = os.path.join(self.base_folder, "test")
+        self.config_folder = os.path.join(self.base_folder, "config")
+        
+        # Create directory structure
+        self._setup_folders()
+        
+        # Configure split ratio (train, val, test)
+        self.train_ratio, self.val_ratio, self.test_ratio = split_ratio
+        
+        # Configure batch parameters
         self.batch_size = batch_size
         self.save_every_n_frames = save_every_n_frames
-        self.train_ratio, self.val_ratio, self.test_ratio = split_ratio
-
-        # Buffers
-        self.depths = []
-        self.poses = []
-        self.frames = []
-        self.distances = []
-        self.actions = []
-        self.victim_dirs = []    # <-- new buffer for direction vectors
-
-        # Setup folders
-        self._setup_folders()
-
-        # Counters
+        
+        # Create buffers for batch collection
+        self.depths = []  # Array of depth maps
+        self.poses = []   # Array of poses (position, orientation)
+        self.frames = []  # Frame indices
+        self.distances = []  # Distance to victim
+        self.actions = []    # Control actions taken
+        self.victim_dirs = []  # Direction to victim
+        
+        # Initialize counters and state
         self.global_frame_counter = 0
         self.global_batch_counter = 0
-        self._load_or_find_latest_batch_number()
-
-        # Control flags
+        self.last_action_label = 8  # Default to hover (8)
+        self.active = False  # Start inactive until scene is created
         self.shutdown_requested = False
-
-        # Action tracking
-        self.last_action_label = 8  # Default: hover
-
-        # Background saving
+        
+        # Initialize save queue and start background thread
         self.save_queue = queue.Queue()
         self.saving_thread = threading.Thread(target=self._background_saver, daemon=True)
         self.saving_thread.start()
-
-        # data capture activation flag
-        self.active = False
         
-        # Subscribe to scene creation completed event
-        EM.subscribe(SCENE_CREATION_COMPLETED, self._on_scene_completed)
-        EM.subscribe(SCENE_CLEARED, self._on_scene_cleared)
-
-        # Event subscriptions
-        EM.subscribe('keyboard/move',   self._on_move)
-        EM.subscribe('keyboard/rotate', self._on_rotate)
-        EM.subscribe(DATASET_DIR_CHANGED, self._on_dir_changed)
-
-        # subscribe to simulation frame events for data capture
-        EM.subscribe('simulation/frame', self._on_simulation_frame)
+        # Load or find the latest batch number
+        self._load_or_find_latest_batch_number()
+        
+        # Subscribe to events
+        self._register_events()
+        
+        self.logger.info("DepthCollector", f"Depth dataset collector initialized, data will be saved to: {self.base_folder}")
+        self.logger.info("DepthCollector", f"Data collection is INACTIVE - waiting for scene creation to begin capturing")
+        self.logger.debug_at_level(DEBUG_L2, "DepthCollector", f"Capture settings: batch_size={batch_size}, save_every_n_frames={save_every_n_frames}")
 
     def _setup_folders(self):
         """Set up the dataset directories"""
-        self.train_folder = os.path.join(self.base_folder, "train")
-        self.val_folder   = os.path.join(self.base_folder, "val")
-        self.test_folder  = os.path.join(self.base_folder, "test")
-        self.config_folder = os.path.join(self.base_folder, "config")
         for folder in [self.base_folder, self.train_folder, self.val_folder, self.test_folder, self.config_folder]:
             os.makedirs(folder, exist_ok=True)
         if self.verbose:
@@ -177,8 +181,12 @@ class DepthDatasetCollector:
             if self.depths:
                 self._flush_buffer()
             
-            # Update the base folder
+            # Update all directory paths
             self.base_folder = new_base_dir
+            self.train_folder = os.path.join(self.base_folder, "train")
+            self.val_folder = os.path.join(self.base_folder, "val")
+            self.test_folder = os.path.join(self.base_folder, "test")
+            self.config_folder = os.path.join(self.base_folder, "config")
             
             # Re-setup the folder structure
             self._setup_folders()
@@ -186,9 +194,7 @@ class DepthDatasetCollector:
             # Find the latest batch number in the new directory
             self._load_or_find_latest_batch_number()
             
-            if self.verbose:
-                self.logger.debug_at_level(DEBUG_L1, "DepthCollector", 
-                                        f"Dataset directory changed to {self.base_folder}, latest batch: {self.global_batch_counter}")
+            self.logger.info("DepthCollector", f"Dataset directory changed to {self.base_folder}, latest batch: {self.global_batch_counter}")
             
             # Notify UI of the change
             EM.publish(DATASET_CONFIG_UPDATED, {
@@ -213,6 +219,18 @@ class DepthDatasetCollector:
         
     def _on_scene_completed(self, _):
         """Handle scene creation completion event"""
+        # Clear any existing data
+        self.depths.clear()
+        self.poses.clear()
+        self.frames.clear()
+        self.distances.clear()
+        self.actions.clear()
+        self.victim_dirs.clear()
+        
+        # Reset frame counter
+        self.global_frame_counter = 0
+        
+        # Activate data collection
         self.active = True
         self.logger.info("DepthCollector", "Scene creation completed. Activating data capture.")
         
@@ -240,13 +258,16 @@ class DepthDatasetCollector:
         EM.publish(DATASET_CAPTURE_REQUEST, self.global_frame_counter)
         
     def _on_simulation_frame(self, _):
-        """Callback for each simulation frame to potentially capture data"""
-        # Don't capture if not active
-        if not self.active:
-            return
-        
-        # Only capture every N frames (skip frames)
+        """Handle simulation frame events for data capture"""
+        # Increment global frame counter
         self.global_frame_counter += 1
+        
+        # If not active for capturing, return immediately
+        if not self.active:
+            if self.global_frame_counter % 100 == 0:  # Log only occasionally to avoid spam
+                self.logger.debug_at_level(DEBUG_L2, "DepthCollector", 
+                                          f"Skipping data capture (frame {self.global_frame_counter}) - waiting for scene creation")
+            return
         
         # Check target visibility periodically (every 50 frames)
         if self.global_frame_counter % 50 == 0:
@@ -285,6 +306,9 @@ class DepthDatasetCollector:
             except Exception as e:
                 self.logger.error("DepthCollector", f"Error getting victim direction: {e}")
                 victim_dir = (0.0, 0.0, 0.0)
+
+        # Log the current action label before capture for debugging
+        self.logger.debug_at_level(DEBUG_L2, "DepthCollector", f"Frame {self.global_frame_counter}: Capturing with action label {self.last_action_label}")
 
         # Capture depth and pose data
         depth_array = capture_depth(self.sensor_handle)
@@ -539,25 +563,45 @@ class DepthDatasetCollector:
             
     def _on_move(self, delta):
         """Handle movement commands to track last action"""
-        dx, dy, dz = delta
-        
-        # Simple mapping of movement to action labels
-        if abs(dx) > 0.1 or abs(dy) > 0.1 or abs(dz) > 0.1:
-            # determine dominant direction
-            max_dir = max(abs(dx), abs(dy), abs(dz))
-            if max_dir == abs(dx):
-                self.last_action_label = 0 if dx > 0 else 1  # Right/Left
-            elif max_dir == abs(dy):
-                self.last_action_label = 2 if dy > 0 else 3  # Forward/Back
-            else:
-                self.last_action_label = 4 if dz > 0 else 5  # Up/Down
+        # Check if delta contains an action label (length 4)
+        if isinstance(delta, (tuple, list)) and len(delta) == 4:
+            dx, dy, dz, action_label = delta
+            # Only update last_action_label if non-hover or if hover is explicitly set from no movement
+            if action_label != 8 or (abs(dx) < 0.05 and abs(dy) < 0.05 and abs(dz) < 0.05):
+                self.last_action_label = action_label
+                self.logger.debug_at_level(DEBUG_L3, "DepthCollector", f"Action label updated: {action_label}")
+        else:
+            # Fallback for backward compatibility
+            dx, dy, dz = delta
+            
+            # Simple mapping of movement to action labels
+            if abs(dx) > 0.1 or abs(dy) > 0.1 or abs(dz) > 0.1:
+                # determine dominant direction
+                max_dir = max(abs(dx), abs(dy), abs(dz))
+                if max_dir == abs(dx):
+                    self.last_action_label = 0 if dx > 0 else 1  # Right/Left
+                elif max_dir == abs(dy):
+                    self.last_action_label = 2 if dy > 0 else 3  # Forward/Back
+                else:
+                    self.last_action_label = 4 if dz > 0 else 5  # Up/Down
+                self.logger.debug_at_level(DEBUG_L3, "DepthCollector", f"Action label updated (fallback): {self.last_action_label}")
                 
     def _on_rotate(self, delta):
         """Handle rotation commands to track last action"""
-        if abs(delta) > 0.01:
-            self.last_action_label = 6 if delta > 0 else 7  # Turn Right/Left
+        # Check if delta contains an action label (tuple/list of length 2)
+        if isinstance(delta, (tuple, list)) and len(delta) == 2:
+            delta_val, action_label = delta
+            # Only update last_action_label if it's rotation (6,7) or if explicitly hover with no rotation
+            if action_label in (6, 7) or (action_label == 8 and abs(delta_val) < 0.01):
+                self.last_action_label = action_label
+                self.logger.debug_at_level(DEBUG_L3, "DepthCollector", f"Rotation action label updated: {action_label}")
         else:
-            self.last_action_label = 8  # Hover / No rotation
+            # Fallback for backward compatibility
+            if abs(delta) > 0.01:
+                self.last_action_label = 6 if delta > 0 else 7  # Turn Right/Left
+                self.logger.debug_at_level(DEBUG_L3, "DepthCollector", f"Rotation action label updated (fallback): {self.last_action_label}")
+            elif self.last_action_label not in (0, 1, 2, 3, 4, 5):  # Don't override movement with hover
+                self.last_action_label = 8  # Hover / No rotation
 
     def _on_config_updated(self, _):
         """Handle configuration updates"""
@@ -625,3 +669,21 @@ class DepthDatasetCollector:
             self.logger.info("DepthCollector", f"Scene batch number saved: {self.global_batch_counter}")
         except Exception as e:
             self.logger.warning("DepthCollector", f"Could not save scene batch number: {e}")
+
+    def _register_events(self):
+        # Listen for config updates
+        EM.subscribe('config/updated', self._on_config_updated)
+        EM.subscribe(DATASET_DIR_CHANGED, self._on_dir_changed)
+
+        # Subscribe to simulation frame events for data capture
+        EM.subscribe('simulation/frame', self._on_simulation_frame)
+
+        # Event subscriptions for movement tracking
+        EM.subscribe('keyboard/move',   self._on_move)
+        EM.subscribe('keyboard/rotate', self._on_rotate)
+        
+        # Scene-related events
+        EM.subscribe(SCENE_CREATION_COMPLETED, self._on_scene_completed)
+        EM.subscribe(SCENE_CLEARED, self._on_scene_cleared)
+        
+        self.logger.info("DepthCollector", "Event subscriptions registered successfully")

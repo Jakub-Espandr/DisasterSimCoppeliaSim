@@ -198,9 +198,14 @@ def main():
     # Setup camera and dataset collector
     logger.info("Main", "Setting up RGBD camera...")
     cam_rgb, floating_view_rgb = setup_rgbd_camera(config)
+    
+    # Create absolute path for dataset storage
+    cwd = os.getcwd()
+    dataset_path = os.path.join(cwd, "data/depth_dataset")
+    
     depth_collector = DepthDatasetCollector(
         cam_rgb,
-        base_folder="data/depth_dataset",
+        base_folder=dataset_path,
         batch_size=config.get("batch_size", 100),
         save_every_n_frames=config.get("dataset_capture_frequency", 5),
         split_ratio=(0.8, 0.1, 0.1),
@@ -268,9 +273,52 @@ def main():
                 if parent_conn and parent_conn.poll():
                     move = parent_conn.recv()
                     logger.debug_at_level(DEBUG_L3, "Main", f"RC input: move={move[:3]}, rotate={move[3]}")
-                    EM.publish('keyboard/move', move[:3])
-                    EM.publish('keyboard/rotate', move[3])
+                    
+                    # Compute action label based on movement values
+                    x, y, z = move[:3]
+                    rotation = move[3]
+                    
+                    # Determine action label using same logic as in drone_keyboard_mapper
+                    action_label = 8  # Default: hover
+                    if abs(x) > 0.1 or abs(y) > 0.1 or abs(z) > 0.1:
+                        max_dir = max(abs(x), abs(y), abs(z))
+                        if max_dir == abs(x):
+                            action_label = 0 if x > 0 else 1  # Right/Left
+                        elif max_dir == abs(y):
+                            action_label = 2 if y > 0 else 3  # Forward/Back
+                        else:
+                            action_label = 4 if z > 0 else 5  # Up/Down
+                    elif abs(rotation) > 0.01:
+                        action_label = 6 if rotation > 0 else 7  # Turn Right/Left
+                    
+                    # Publish events with action labels - prioritize movement processing
+                    EM.publish('keyboard/move', (move[0], move[1], move[2], action_label))
+                    EM.publish('keyboard/rotate', (move[3], action_label))
+                    
+                    # Process any additional RC inputs that might have arrived
+                    # This helps reduce lag by processing all available inputs
+                    while parent_conn.poll():
+                        move = parent_conn.recv()
+                        x, y, z = move[:3]
+                        rotation = move[3]
+                        
+                        # Determine action label
+                        action_label = 8  # Default: hover
+                        if abs(x) > 0.1 or abs(y) > 0.1 or abs(z) > 0.1:
+                            max_dir = max(abs(x), abs(y), abs(z))
+                            if max_dir == abs(x):
+                                action_label = 0 if x > 0 else 1  # Right/Left
+                            elif max_dir == abs(y):
+                                action_label = 2 if y > 0 else 3  # Forward/Back
+                            else:
+                                action_label = 4 if z > 0 else 5  # Up/Down
+                        elif abs(rotation) > 0.01:
+                            action_label = 6 if rotation > 0 else 7  # Turn Right/Left
+                        
+                        # Only publish the most recent input
+                        logger.debug_at_level(DEBUG_L3, "Main", f"Additional RC input processed")
 
+                # Process frame update
                 EM.publish('simulation/frame', delta_time)
 
         sim.step()

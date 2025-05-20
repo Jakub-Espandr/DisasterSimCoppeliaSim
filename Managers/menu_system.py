@@ -28,6 +28,7 @@ import threading
 from datetime import datetime
 import os
 import sys
+from Tools.scroll_frame import ScrollFrame
 
 
 class MenuSystem:
@@ -80,7 +81,7 @@ class MenuSystem:
 
         # Build and style main window
         self.root = tk.Tk()
-        self.root.title("Disaster Simulation with Drone Navigation v1.3.3C - HyperDrive Insight")
+        self.root.title("Disaster Simulation with Drone Navigation v1.4.0 - HyperDrive Pathway")
         self.root.geometry("700x900")  # Increased width to ensure all tabs are visible
         self.root.configure(bg="#1a1a1a")  # Dark background
         
@@ -193,22 +194,22 @@ class MenuSystem:
         self._ui_pressed_keys.clear()
         
         # Stop any existing movement to ensure clean state
-        EM.publish('keyboard/move', (0.0, 0.0, 0.0))
-        EM.publish('keyboard/rotate', 0.0)
+        EM.publish('keyboard/move', (0.0, 0.0, 0.0, 8))
+        EM.publish('keyboard/rotate', (0.0, 8))
         
         self.logger.info("MenuSystem", "UI control active - window regained focus")
     
     def _on_focus_out(self, event):
-        """Handle window losing focus"""
+        """Handle when the UI loses focus - stop keyboard controls"""
         self.control_status_var.set("UI Control Inactive - Click window to activate")
         self.control_status_label.configure(foreground="#FF3333")  # Red
         
-        # Clear pressed keys to stop movement
+        # Clear currently pressed keys and stop drone movement
         self._ui_pressed_keys.clear()
         
-        # Stop any existing movement
-        EM.publish('keyboard/move', (0.0, 0.0, 0.0))
-        EM.publish('keyboard/rotate', 0.0)
+        # Send stop movement events
+        EM.publish('keyboard/move', (0.0, 0.0, 0.0, 8))  # 8 = hover
+        EM.publish('keyboard/rotate', (0.0, 8))
         
         self.logger.warning("MenuSystem", "UI control inactive - window lost focus")
     
@@ -284,23 +285,30 @@ class MenuSystem:
         self.root.after(20, self._schedule_movement_updates)
     
     def _process_movement(self):
-        """Process movement based on currently pressed keys"""
-        # Calculate movement values
-        forward = sideward = upward = yaw = 0
+        """Process keyboard movement commands and send events"""
+        forward = 0  # Forward/backward
+        sideward = 0  # Left/right
+        upward = 0  # Up/down
+        yaw = 0  # Rotation
         
+        # Check which keys are pressed
         for key in self._ui_pressed_keys:
-            if key not in self.key_direction_map:
-                continue
-            
-            direction, sign = self.key_direction_map[key]
-            if direction == 'forward':
-                forward += sign
-            elif direction == 'sideward':
-                sideward += sign
-            elif direction == 'upward':
-                upward += sign
-            elif direction == 'yaw':
-                yaw += sign
+            if key == 'w':
+                forward += 1
+            elif key == 's':
+                forward -= 1
+            elif key == 'a':
+                sideward -= 1
+            elif key == 'd':
+                sideward += 1
+            elif key == 'space':
+                upward += 1
+            elif key == 'z':
+                upward -= 1
+            elif key == 'q':
+                yaw += 1
+            elif key == 'e':
+                yaw -= 1
         
         # Apply single-axis movement restriction if enabled
         if self.config.get("single_axis_mode", False):
@@ -336,13 +344,26 @@ class MenuSystem:
         smooth_move_step = move_step * ui_speed_multiplier * 0.5
         smooth_rotate_step = math.radians(rotate_step) * 0.5
         
+        # Compute action label based on movement
+        action_label = 8  # Default hover
+        if abs(sideward) > 0.1 or abs(forward) > 0.1 or abs(upward) > 0.1:
+            max_dir = max(abs(sideward), abs(forward), abs(upward))
+            if max_dir == abs(sideward):
+                action_label = 0 if sideward > 0 else 1  # Right/Left
+            elif max_dir == abs(forward):
+                action_label = 2 if forward > 0 else 3  # Forward/Back
+            else:
+                action_label = 4 if upward > 0 else 5  # Up/Down
+        elif abs(yaw) > 0.01:
+            action_label = 6 if yaw > 0 else 7  # Turn Right/Left
+        
         # Send movement events if there are active keys
         if self._ui_pressed_keys:
             if forward or sideward or upward:
-                EM.publish('keyboard/move', (sideward * smooth_move_step, forward * smooth_move_step, upward * smooth_move_step))
+                EM.publish('keyboard/move', (sideward * smooth_move_step, forward * smooth_move_step, upward * smooth_move_step, action_label))
             
             if yaw:
-                EM.publish('keyboard/rotate', yaw * smooth_rotate_step)
+                EM.publish('keyboard/rotate', (yaw * smooth_rotate_step, action_label))
         
         # Always process movement, which helps ensure smooth control
         # This gets called regularly via _schedule_movement_updates
@@ -775,6 +796,20 @@ class MenuSystem:
             self._monitoring_active = False
             self._clear_performance_metrics()
 
+    def _safe_button_action(self, action_func):
+        """
+        Wrapper for button actions to prevent space key from triggering them.
+        This prevents accidental scene operations when using space for drone movement.
+        """
+        def safe_action(*args, **kwargs):
+            # Check if space key is currently pressed
+            if 'space' in self._ui_pressed_keys:
+                self.logger.debug_at_level(DEBUG_L1, "MenuSystem", "Ignoring button action triggered by space key")
+                return
+            # Call the original action function
+            return action_func(*args, **kwargs)
+        return safe_action
+
     def _build_scene_tab(self, parent):
         # Title with modern styling
         title_frame = ttk.Frame(parent)
@@ -806,6 +841,12 @@ class MenuSystem:
         
         # Create scene with event-driven approach
         def create_scene_with_event():
+            # Check if this was triggered by a space key press (which should be ignored)
+            # This prevents accidental scene creation when using space for drone movement
+            if 'space' in self._ui_pressed_keys:
+                self.logger.debug_at_level(DEBUG_L1, "MenuSystem", "Ignoring scene creation triggered by space key")
+                return
+                
             # Apply all config changes first to ensure latest values are used
             self._apply_all_config_changes()  # Apply all config changes from UI
             
@@ -931,7 +972,7 @@ class MenuSystem:
         create_btn = ttk.Button(
             buttons_container, 
             text="Create Environment", 
-            command=create_scene_with_event,
+            command=self._safe_button_action(create_scene_with_event),
             style="Create.TButton"
         )
         create_btn.grid(row=0, column=0, padx=10, pady=8)
@@ -941,7 +982,7 @@ class MenuSystem:
         clear_btn = ttk.Button(
             buttons_container, 
             text="Clear Environment", 
-            command=clear_scene_action,
+            command=self._safe_button_action(clear_scene_action),
             style="Clear.TButton"
         )
         clear_btn.grid(row=1, column=0, padx=10, pady=8)
@@ -951,7 +992,7 @@ class MenuSystem:
         cancel_btn = ttk.Button(
             buttons_container, 
             text="Cancel Creating", 
-            command=cancel_creation,
+            command=self._safe_button_action(cancel_creation),
             style="Cancel.TButton"
         )
         cancel_btn.grid(row=2, column=0, padx=10, pady=8)
@@ -971,24 +1012,12 @@ class MenuSystem:
         clear_scene()
 
     def _build_config_tab(self, parent):
-        # Create a canvas with scrollbar for the config options
-        canvas = tk.Canvas(parent, bg="#0a0a0a", highlightthickness=0)
-        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
-
-        # Configure the canvas
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
+        # Create a ScrollFrame for the config options
+        scroll_frame = ScrollFrame(parent, bg="#0a0a0a")
+        scroll_frame.pack(fill="both", expand=True)
         
-        # Create a window in the canvas to hold the scrollable frame
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw", width=canvas.winfo_width())
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        # Pack the scrollbar and canvas with padding
-        scrollbar.pack(side="right", fill="y", padx=(5, 0))  # Add padding on the left of scrollbar
-        canvas.pack(side="left", fill="both", expand=True, padx=(0, 5))  # Add padding on the right of canvas
+        # Get the scrollable frame to add content to
+        scrollable_frame = scroll_frame.scrollable_frame
         
         # Title
         ttk.Label(scrollable_frame, text="Configuration", style="Title.TLabel").pack(pady=(0,20))
@@ -1163,16 +1192,8 @@ class MenuSystem:
                              command=self._load_config)
         load_btn.pack(side="left", fill="x", expand=True, padx=(5, 0))
         
-        # Add mouse wheel scrolling support
-        canvas.bind_all("<MouseWheel>", lambda event: canvas.yview_scroll(int(-1 * (event.delta / 120)), "units"))
-        # For Linux/macOS (different event)
-        canvas.bind_all("<Button-4>", lambda event: canvas.yview_scroll(-1, "units"))
-        canvas.bind_all("<Button-5>", lambda event: canvas.yview_scroll(1, "units"))
-        
-        # Update canvas width when window is resized
-        def on_resize(event):
-            canvas.itemconfig(canvas.find_withtag("all")[0], width=event.width)
-        canvas.bind('<Configure>', on_resize)
+        # Note: Scrolling is now handled by the ScrollFrame class
+        # No need for manual scroll event bindings or resize handlers
 
     def _apply_all_changes(self):
         """Apply all changes including dynamic objects"""
@@ -1291,52 +1312,57 @@ class MenuSystem:
                 self.single_axis_mode_var.set(self.config.get('single_axis_mode', False))
 
     def _quit(self):
-        """Quit the application with confirmation dialog"""
-        if not hasattr(self, 'root') or not self.root:
-            # Already quitting or destroyed
-            return
-        
-        self.logger.info("MenuSystem", "Shutting down application...")
-        
-        # Create dialog window
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Confirm Exit")
-        dialog.geometry("360x180")
-        dialog.transient(self.root)  # Set to be on top of the main window
-        dialog.grab_set()  # Modal
-        
-        # Center on parent
-        dialog.update_idletasks()
-        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (dialog.winfo_width() // 2)
-        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (dialog.winfo_height() // 2)
-        dialog.geometry(f"+{x}+{y}")
-        
-        # Content
-        content_frame = ttk.Frame(dialog, padding=20)
-        content_frame.pack(fill=tk.BOTH, expand=True)
-        
-        message = ttk.Label(
-            content_frame, 
-            text="Are you sure you want to exit?\nThis will close the simulator.",
-            font=("Segoe UI", 11),
-            wraplength=300,
-            justify=tk.CENTER
-        )
-        message.pack(pady=(0, 20))
-        
-        button_frame = ttk.Frame(content_frame)
-        button_frame.pack(fill=tk.X)
-        
-        cancel_btn = ttk.Button(button_frame, text="Cancel", command=dialog.destroy)
-        cancel_btn.pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
-        
-        confirm_btn = ttk.Button(
-            button_frame, 
-            text="Exit", 
-            style="Quit.TButton",
-            command=lambda: self._confirm_quit(dialog)
-        )
-        confirm_btn.pack(side=tk.RIGHT, padx=5, expand=True, fill=tk.X)
+        """Clean shutdown of the application"""
+        try:
+            # Stop any movement before closing
+            EM.publish('keyboard/move', (0.0, 0.0, 0.0, 8))  # 8 = hover
+            EM.publish('keyboard/rotate', (0.0, 8))
+            
+            self.logger.info("MenuSystem", "Shutting down application...")
+            
+            # Create dialog window
+            dialog = tk.Toplevel(self.root)
+            dialog.title("Confirm Exit")
+            dialog.geometry("360x180")
+            dialog.transient(self.root)  # Set to be on top of the main window
+            dialog.grab_set()  # Modal
+            
+            # Center on parent
+            dialog.update_idletasks()
+            x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (dialog.winfo_width() // 2)
+            y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (dialog.winfo_height() // 2)
+            dialog.geometry(f"+{x}+{y}")
+            
+            # Content
+            content_frame = ttk.Frame(dialog, padding=20)
+            content_frame.pack(fill=tk.BOTH, expand=True)
+            
+            message = ttk.Label(
+                content_frame, 
+                text="Are you sure you want to exit?\nThis will close the simulator.",
+                font=("Segoe UI", 11),
+                wraplength=300,
+                justify=tk.CENTER
+            )
+            message.pack(pady=(0, 20))
+            
+            button_frame = ttk.Frame(content_frame)
+            button_frame.pack(fill=tk.X)
+            
+            cancel_btn = ttk.Button(button_frame, text="Cancel", command=dialog.destroy)
+            cancel_btn.pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
+            
+            confirm_btn = ttk.Button(
+                button_frame, 
+                text="Exit", 
+                style="Quit.TButton",
+                command=lambda: self._confirm_quit(dialog)
+            )
+            confirm_btn.pack(side=tk.RIGHT, padx=5, expand=True, fill=tk.X)
+        except Exception as e:
+            self.logger.error("MenuSystem", f"Error during application shutdown: {e}")
+            self.status_label.configure(text=f"Error: {str(e)}")
+            self.root.after(2000, lambda: self.status_label.configure(text=""))
 
     def _confirm_quit(self, dialog):
         """Handle confirmed quit action"""
@@ -1486,6 +1512,11 @@ class MenuSystem:
         Handle a scene creation request from the menu system.
         This gets triggered when the user selects 'Create disaster area' from the main menu.
         """
+        # Check if this was triggered by a space key press (which should be ignored)
+        if 'space' in self._ui_pressed_keys:
+            self.logger.debug_at_level(DEBUG_L1, "MenuSystem", "Ignoring scene creation triggered by space key")
+            return
+            
         # Apply all configuration changes first
         self._apply_all_config_changes()
         
@@ -1787,24 +1818,12 @@ class MenuSystem:
 
     def _build_help_tab(self, parent):
         """Build the help tab with application information and controls"""
-        # Create a canvas with scrollbar for the help content
-        canvas = tk.Canvas(parent, bg="#0a0a0a", highlightthickness=0)
-        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
-
-        # Configure the canvas
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
+        # Create a ScrollFrame for the help content
+        scroll_frame = ScrollFrame(parent, bg="#0a0a0a")
+        scroll_frame.pack(fill="both", expand=True)
         
-        # Create a window in the canvas to hold the scrollable frame
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw", width=canvas.winfo_width())
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        # Pack the scrollbar and canvas with padding
-        scrollbar.pack(side="right", fill="y", padx=(5, 0))  # Add padding on the left of scrollbar
-        canvas.pack(side="left", fill="both", expand=True, padx=(0, 5))  # Add padding on the right of canvas
+        # Get the scrollable frame to add content to
+        scrollable_frame = scroll_frame.scrollable_frame
         
         # Define enhanced styles for the help tab
         help_title_font = ("Segoe UI", 22, "bold")  # Larger title font
@@ -1832,8 +1851,8 @@ class MenuSystem:
         version_frame.pack(fill="x", pady=10, padx=15)  # Increased padding
         
         version_info = """
-• Version: HyperDrive Insight v1.3.3C
-• Build: 20.05.2025
+• Version: HyperDrive Pathway v1.4.0
+• Build: 21.05.2025
         """
         version_label = ttk.Label(
             version_frame, 
@@ -2211,16 +2230,8 @@ class MenuSystem:
         )
         shortcuts_label.pack(fill="x")
         
-        # Add mouse wheel scrolling support
-        canvas.bind_all("<MouseWheel>", lambda event: canvas.yview_scroll(int(-1 * (event.delta / 120)), "units"))
-        # For Linux/macOS (different event)
-        canvas.bind_all("<Button-4>", lambda event: canvas.yview_scroll(-1, "units"))
-        canvas.bind_all("<Button-5>", lambda event: canvas.yview_scroll(1, "units"))
-        
-        # Update canvas width when window is resized
-        def on_resize(event):
-            canvas.itemconfig(canvas.find_withtag("all")[0], width=event.width)
-        canvas.bind('<Configure>', on_resize)
+        # Note: Scrolling is now handled by the ScrollFrame class
+        # No need for manual scroll event bindings
 
     def _save_config(self):
         """Save current configuration to a JSON file"""
@@ -3035,8 +3046,8 @@ class MenuSystem:
         self._ui_pressed_keys.clear()
         try:
             # Explicitly stop all movement by publishing zero values
-            EM.publish('keyboard/move', (0.0, 0.0, 0.0))
-            EM.publish('keyboard/rotate', 0.0)
+            EM.publish('keyboard/move', (0.0, 0.0, 0.0, 8))
+            EM.publish('keyboard/rotate', (0.0, 8))
         except Exception as e:
             self.logger.error("MenuSystem", f"Error stopping movement: {e}")
         
@@ -3465,25 +3476,13 @@ class MenuSystem:
         self._safe_ui_update(update_ui)
 
     def _build_logging_tab(self, parent):
-        """Build the logging configuration tab."""
-        # Create a canvas with scrollbar for better organization
-        canvas = tk.Canvas(parent, bg="#1a1a1a", highlightthickness=0)
-        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
+        """Build the logging tab with log level controls and log view"""
+        # Create a ScrollFrame for the logging content
+        scroll_frame = ScrollFrame(parent, bg="#0a0a0a")
+        scroll_frame.pack(fill="both", expand=True)
         
-        # Configure the canvas
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        # Create a window in the canvas to hold the scrollable frame
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw", width=canvas.winfo_width())
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        # Pack the scrollbar and canvas with padding
-        scrollbar.pack(side="right", fill="y", padx=(5, 0))
-        canvas.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        # Get the scrollable frame to add content to
+        scrollable_frame = scroll_frame.scrollable_frame
         
         # Title
         title_label = ttk.Label(
@@ -3654,18 +3653,9 @@ class MenuSystem:
         )
         apply_verbose_btn.pack(pady=10)
         
-        # Update canvas width when window is resized
-        def on_resize(event):
-            canvas.itemconfig(canvas.find_withtag("all")[0], width=event.width)
-        canvas.bind('<Configure>', on_resize)
+        # The ScrollFrame class now handles all scrolling, so we don't need these canvas-related lines
         
-        # Add mouse wheel scrolling
-        canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
-        # For Linux/macOS (different event)
-        canvas.bind_all("<Button-4>", lambda e: canvas.yview_scroll(-1, "units"))
-        canvas.bind_all("<Button-5>", lambda e: canvas.yview_scroll(1, "units"))
-        
-        # Update the current settings
+        # Initialize the logger display with current settings
         self._update_logging_status()
     
     def _update_logging_status(self):
@@ -3949,30 +3939,13 @@ class MenuSystem:
             return "UNKNOWN"
 
     def _build_controls_tab(self, parent):
-        """Build the controls tab with controller settings"""
-        # Title with modern styling
-        title_frame = ttk.Frame(parent)
-        title_frame.pack(fill="x", pady=(0, 20))
-        ttk.Label(title_frame, text="Controller Settings", style="Title.TLabel").pack()
+        """Build the controls tab with both keyboard and RC settings"""
+        # Create a ScrollFrame for the controls options
+        scroll_frame = ScrollFrame(parent, bg="#0a0a0a")
+        scroll_frame.pack(fill="both", expand=True)
         
-        # Create a canvas with scrollbar for the controls options - set proper background color
-        canvas = tk.Canvas(parent, bg="#1a1a1a", highlightthickness=0)
-        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas, style="TFrame")  # Use themed frame
-
-        # Configure the canvas
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        # Create a window in the canvas to hold the scrollable frame
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw", width=canvas.winfo_width())
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        # Pack the scrollbar and canvas with padding
-        scrollbar.pack(side="right", fill="y", padx=(5, 0))  # Add padding on the left of scrollbar
-        canvas.pack(side="left", fill="both", expand=True, padx=(0, 5))  # Add padding on the right of canvas
+        # Get the scrollable frame to add content to
+        scrollable_frame = scroll_frame.scrollable_frame
         
         # Movement Mode Section
         movement_mode_frame = ttk.LabelFrame(scrollable_frame, text="Movement Mode", padding=15, labelanchor="n")
@@ -4047,8 +4020,8 @@ For example:
         self.move_step_var = tk.DoubleVar(value=self.config.get("move_step", 0.2))
         move_scale = ttk.Scale(
             move_frame,
-            from_=0.1,
-            to=1.0,
+            from_=0.01,
+            to=0.3,
             orient="horizontal",
             variable=self.move_step_var,
             command=self._update_move_step_label
@@ -4057,7 +4030,7 @@ For example:
         
         self.move_step_label = ttk.Label(
             move_frame,
-            text=f"{self.move_step_var.get():.1f}",
+            text=f"{self.move_step_var.get():.2f}",
             width=5
         )
         self.move_step_label.pack(side="left", padx=5)
@@ -4104,22 +4077,14 @@ For example:
         # Create an instance of RCControllerSettings
         self.rc_settings = RCControllerSettings(scrollable_frame, self.config)
         
-        # Add mouse wheel scrolling support
-        canvas.bind_all("<MouseWheel>", lambda event: canvas.yview_scroll(int(-1 * (event.delta / 120)), "units"))
-        # For Linux/macOS (different event)
-        canvas.bind_all("<Button-4>", lambda event: canvas.yview_scroll(-1, "units"))
-        canvas.bind_all("<Button-5>", lambda event: canvas.yview_scroll(1, "units"))
-        
-        # Update canvas width when window is resized
-        def on_resize(event):
-            canvas.itemconfig(canvas.find_withtag("all")[0], width=event.width)
-        canvas.bind('<Configure>', on_resize)
+        # The ScrollFrame class now handles all scrolling, so we don't need these lines anymore
+        # that referred to the canvas variable which no longer exists
     
     def _update_move_step_label(self, value):
         """Update the movement speed value label"""
         try:
             val = float(value)
-            self.move_step_label.config(text=f"{val:.1f}")
+            self.move_step_label.config(text=f"{val:.2f}")
         except:
             pass
     
@@ -4134,9 +4099,9 @@ For example:
     def _apply_keyboard_settings(self):
         """Apply keyboard control settings"""
         try:
-            # Update config with current UI values, rounding move_step to one decimal
-            self.config["move_step"] = round(self.move_step_var.get(), 1)
-            self.config["rotate_step_deg"] = self.rotate_step_var.get()
+            # Update config with current UI values, rounding to appropriate decimals
+            self.config["move_step"] = round(self.move_step_var.get(), 2)
+            self.config["rotate_step_deg"] = round(self.rotate_step_var.get(), 1)
             
             # Publish config update events
             EM.publish('config/updated', 'move_step')
@@ -4194,8 +4159,8 @@ For example:
             # Check if the file exists
             if not os.path.exists(viewer_path):
                 self.logger.error("MenuSystem", f"Depth image viewer not found at {viewer_path}")
-                self.config_status_var.set("Error: Depth image viewer tool not found")
-                self.root.after(3000, lambda: self.config_status_var.set(""))
+                self.status_label.configure(text="Error: Depth image viewer tool not found")
+                self.root.after(3000, lambda: self.status_label.configure(text=""))
                 return
                 
             # Get the current Python interpreter path
@@ -4206,12 +4171,12 @@ For example:
             subprocess.Popen([python_executable, viewer_path])
             
             # Show success message
-            self.config_status_var.set("Depth image viewer launched successfully")
-            self.root.after(3000, lambda: self.config_status_var.set(""))
+            self.status_label.configure(text="Depth image viewer launched successfully")
+            self.root.after(3000, lambda: self.status_label.configure(text=""))
         except Exception as e:
             self.logger.error("MenuSystem", f"Error opening depth image viewer: {e}")
-            self.config_status_var.set(f"Error: {str(e)}")
-            self.root.after(3000, lambda: self.config_status_var.set(""))
+            self.status_label.configure(text=f"Error: {str(e)}")
+            self.root.after(3000, lambda: self.status_label.configure(text=""))
 
     def _show_mapping_details(self, parent, mappings):
         """Show details of RC mappings in a popup dialog"""

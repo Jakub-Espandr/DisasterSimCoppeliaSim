@@ -30,7 +30,7 @@ def rc_loop(config, conn):
     
     # Throttle update rate - controls how many position updates to skip
     update_counter = 0
-    update_every = 1  # Only send every nth update
+    update_every = 1  # Send every update by default
     
     # Timestamp tracking for adaptive timing
     last_time = time.time()
@@ -127,27 +127,31 @@ def rc_loop(config, conn):
                             y_axis = 0
                             yaw = 0
                 
-                # Only send updates when values change or on regular intervals
-                update_counter += 1
+                # Always send updates when values change significantly
+                # Use a smaller threshold to detect changes
                 should_update = (
-                    update_counter >= update_every or
-                    abs(x_axis - last_x_axis) > 0.01 or
-                    abs(y_axis - last_y_axis) > 0.01 or
-                    abs(z_axis - last_z_axis) > 0.01 or
-                    abs(yaw - last_yaw) > 0.01
+                    abs(x_axis - last_x_axis) > 0.005 or
+                    abs(y_axis - last_y_axis) > 0.005 or
+                    abs(z_axis - last_z_axis) > 0.005 or
+                    abs(yaw - last_yaw) > 0.005
                 )
+                
+                # Also send periodic updates even without changes (reduced from previous)
+                update_counter += 1
+                if update_counter >= 2:  # Send at least every 2nd frame
+                    should_update = True
+                    update_counter = 0
                 
                 if should_update:
                     conn.send([x_axis, y_axis, z_axis, yaw])
                     last_x_axis, last_y_axis, last_z_axis, last_yaw = x_axis, y_axis, z_axis, yaw
-                    update_counter = 0
                 
                 # Debug output at high verbosity level
                 logger.debug_at_level(DEBUG_L3, "RC", f"x={x_axis:.2f}, y={y_axis:.2f}, z={z_axis:.2f}, yaw={yaw:.2f}")
                 
             except Exception as e:
                 logger.error("RC", f"Error reading joystick axes: {e}")
-                time.sleep(0.1)  # Add a small delay before retrying
+                time.sleep(0.05)  # Reduced delay before retrying
                 continue
             
             # Calculate frame processing time
@@ -157,14 +161,14 @@ def rc_loop(config, conn):
             # Use a moving average for frame time to make sleep times more stable
             frame_time_avg = 0.9 * frame_time_avg + 0.1 * frame_time
             
-            # Dynamic sleep time: shorter when frame time is longer
-            # This makes controller more responsive under system load
-            sleep_time = max(0.01, 0.03 - frame_time_avg)  # Minimum 10ms, target 30ms total cycle time
+            # Reduced sleep time for more responsive control
+            # Minimum 5ms, target 20ms total cycle time (increased frequency)
+            sleep_time = max(0.005, 0.02 - frame_time_avg)
             time.sleep(sleep_time)
             
         except Exception as e:
             logger.error("RC", f"Error in RC controller loop: {e}")
-            time.sleep(0.1)  # Add a small delay before retrying
+            time.sleep(0.05)  # Reduced delay before retrying
             continue
     
     # Clean up

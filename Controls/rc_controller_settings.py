@@ -99,7 +99,7 @@ class RCControllerSettings:
         sensitivity_scale = ttk.Scale(
             sens_frame,
             from_=0.1,
-            to=20.0,
+            to=5.0,
             orient="horizontal",
             variable=self.sensitivity_var,
             command=self._update_sensitivity_label
@@ -170,8 +170,8 @@ class RCControllerSettings:
         self.deadzone_var = tk.DoubleVar(value=self.config.get("rc_deadzone", 0.1))
         deadzone_scale = ttk.Scale(
             dead_frame,
-            from_=0.1,
-            to=2.0,
+            from_=0.05,
+            to=0.9,
             orient="horizontal",
             variable=self.deadzone_var,
             command=self._update_deadzone_label

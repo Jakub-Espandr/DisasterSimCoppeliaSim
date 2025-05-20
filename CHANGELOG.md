@@ -1,3 +1,24 @@
+## [V.1.4.0] - HyperDrive Pathway - 2025-05-21
+
+### Added
+**- Enhanced scrolling experience:**
+- Implemented advanced cross-platform trackpad scrolling support
+- Added smooth scrolling with platform-specific optimizations alongside traditional scrollbar
+
+**- Improved UI responsiveness:**
+- Enhanced performance for macOS, Windows, and Linux platforms
+
+### Fixed
+**- Dataset action recording:**
+- Fixed issue where dataset wasn't properly recording actions
+- Ensured all control inputs are correctly logged in dataset captures
+
+**- Control initialization:**
+- Fixed issues with initial values for RC controller and keyboard
+- Ensured proper initialization of control parameters on application startup
+
+---
+
 ## [V.1.3.3C] - HyperDrive Insight - 2025-05-20
 
 ###Added

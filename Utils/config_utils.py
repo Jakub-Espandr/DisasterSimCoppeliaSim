@@ -49,8 +49,8 @@ def get_default_config():
         "clear_zone_center": (0, 0),
         "clear_zone_radius": 0.5,
         "verbose": True,
-        "move_step": 0.2,
-        "rotate_step_deg": 15.0,
+        "move_step": 0.05,
+        "rotate_step_deg": 10.0,
         "drone_spawn_margin": 1.0,
         "optimized_creation": True,
         "include_rocks": True,
@@ -59,7 +59,7 @@ def get_default_config():
         "include_bushes": True,
         "include_foliage": True,
         "batch_size": 10,
-        "rc_sensitivity": 10.0,
+        "rc_sensitivity": 2.0,
     }
     
     # Load saved RC controller settings and mappings if available
