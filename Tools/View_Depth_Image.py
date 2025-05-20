@@ -71,7 +71,7 @@ class ImageViewer:
         """
         logger.info("ImageViewer", "Initializing depth image viewer application")
         self.root = root
-        self.root.title("Depth Image Viewer v.0.3.0")
+        self.root.title("Depth Image Viewer v.0.4.0")
         
         # Set app icon for Windows and macOS
         self.set_app_icon()
@@ -165,18 +165,34 @@ class ImageViewer:
         
     def configure_app_style(self):
         """Configure the application style to match the main app."""
-        # Light theme with black text
-        self.bg_color = "#ffffff"  # Pure white background
-        self.fg_color = "#000000"  # Black text
+        # Dark theme with white text
+        self.bg_color = "#242424"  # Dark background
+        self.fg_color = "#ffffff"  # White text
         self.accent_color = "#0078d7"  # Modern blue accent
         self.success_color = "#2ecc71"  # Modern green
         self.warning_color = "#f39c12"  # Modern orange
         self.error_color = "#e74c3c"  # Modern red
-        self.hover_color = "#f5f5f5"  # Light gray for hover states
-        self.border_color = "#d0d0d0"  # Light gray for borders
+        self.hover_color = "#333333"  # Slightly lighter gray for hover states
+        self.border_color = "#444444"  # Medium gray for borders
+        self.button_bg = "#333333"  # Button background
+        self.input_bg = "#333333"  # Input background
         
         # Configure the root window
         self.root.configure(bg=self.bg_color)
+        
+        # Set default colors for all standard Tkinter widgets
+        self.root.option_add("*Background", self.bg_color)
+        self.root.option_add("*Foreground", self.fg_color)
+        self.root.option_add("*selectBackground", self.accent_color)
+        self.root.option_add("*selectForeground", self.fg_color)
+        self.root.option_add("*Text.Background", self.input_bg)
+        self.root.option_add("*Text.Foreground", self.fg_color)
+        self.root.option_add("*Canvas.Background", self.bg_color)
+        self.root.option_add("*Entry.Background", self.input_bg)
+        self.root.option_add("*Menu.Background", self.bg_color)
+        self.root.option_add("*Menu.Foreground", self.fg_color)
+        self.root.option_add("*Menu.selectBackground", self.accent_color)
+        self.root.option_add("*Menu.selectForeground", self.fg_color)
         
         # Configure ttk styles
         style = ttk.Style()
@@ -193,7 +209,7 @@ class ImageViewer:
         
         # Configure button styles
         style.configure("TButton", 
-                      background=self.hover_color, 
+                      background=self.button_bg, 
                       foreground=self.fg_color, 
                       font=("Helvetica", 10))
         
@@ -203,25 +219,25 @@ class ImageViewer:
         
         # Configure entry styles
         style.configure("TEntry",
-                      fieldbackground=self.bg_color,
+                      fieldbackground=self.input_bg,
                       foreground=self.fg_color,
                       insertcolor=self.fg_color)
         
         # Configure combobox styles
         style.configure("TCombobox", 
-                      fieldbackground=self.bg_color,
+                      fieldbackground=self.input_bg,
                       foreground=self.fg_color,
                       background=self.bg_color)
         
         style.map("TCombobox",
-                  fieldbackground=[("readonly", self.bg_color)],
+                  fieldbackground=[("readonly", self.input_bg)],
                   background=[("readonly", self.bg_color)],
                   foreground=[("readonly", self.fg_color)])
         
         # Configure the notebook style (used for tabs)
         style.configure("TNotebook", background=self.bg_color, borderwidth=0)
         style.configure("TNotebook.Tab",
-                      background=self.bg_color,
+                      background=self.button_bg,
                       foreground=self.fg_color,
                       padding=[10, 5],
                       font=("Helvetica", 10))
@@ -235,6 +251,17 @@ class ImageViewer:
                       background=self.bg_color, 
                       troughcolor=self.hover_color,
                       arrowcolor=self.fg_color)
+                      
+        # Apply a 3D visualization style for better visibility on dark background
+        matplotlib.rc('axes', facecolor=self.bg_color)
+        matplotlib.rc('figure', facecolor=self.bg_color)
+        matplotlib.rc('axes', labelcolor=self.fg_color)
+        matplotlib.rc('axes', edgecolor=self.fg_color)
+        matplotlib.rc('xtick', color=self.fg_color)
+        matplotlib.rc('ytick', color=self.fg_color)
+        matplotlib.rc('text', color=self.fg_color)
+        matplotlib.rc('lines', color=self.accent_color)
+        matplotlib.rc('grid', color=self.hover_color)
     
     #--- Initialization Methods ---#
     
@@ -268,39 +295,536 @@ class ImageViewer:
         self.auto_advance_id = None
         self.last_auto_action = None
         
+        # Colormap selection - setting grayscale as default
+        self.colormap_var = tk.StringVar(value="grayscale")
+        self.available_colormaps = ["grayscale", "viridis", "plasma", "inferno", "magma", "jet"]
+        
         # Debugging flag
         self.debug_mode = False  # Set to True to enable debug messages
     
     def setup_ui(self):
-        """Set up the user interface components."""
-        # Main content frame
+        """Set up the application user interface and layout."""
+        logger.debug_at_level(DEBUG_L1, "ImageViewer", "Setting up user interface")
+        
+        # Create a main frame for the entire application
         main_frame = ttk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # Create a notebook (tabbed container)
-        notebook = ttk.Notebook(main_frame)
-        notebook.pack(fill=tk.BOTH, expand=True)
+        # Create a toolbar at the top for global actions
+        self.create_toolbar(main_frame)
         
-        # Tab 1: Viewer
-        viewer_tab = ttk.Frame(notebook)
-        notebook.add(viewer_tab, text="Viewer")
+        # Create tabbed interface
+        nb = ttk.Notebook(main_frame)
+        nb.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        # Tab 2: Batch Operations
-        batch_tab = ttk.Frame(notebook)
-        notebook.add(batch_tab, text="Batch Operations")
+        # Viewer tab
+        viewer_frame = ttk.Frame(nb)
+        self.setup_viewer_tab(viewer_frame)
+        nb.add(viewer_frame, text="Viewer")
         
-        # Tab 3: Help
-        help_tab = ttk.Frame(notebook)
-        notebook.add(help_tab, text="Help")
+        # Data Inspector tab (new)
+        data_inspector_frame = ttk.Frame(nb)
+        self.setup_data_inspector_tab(data_inspector_frame)
+        nb.add(data_inspector_frame, text="Data Inspector")
         
-        # Setup viewer tab content
-        self.setup_viewer_tab(viewer_tab)
+        # Batch Operations tab
+        batch_frame = ttk.Frame(nb)
+        self.setup_batch_operations_tab(batch_frame)
+        nb.add(batch_frame, text="Batch Operations")
         
-        # Setup batch operations tab content
-        self.setup_batch_operations_tab(batch_tab)
+        # Help tab
+        help_frame = ttk.Frame(nb)
+        self.setup_help_tab(help_frame)
+        nb.add(help_frame, text="Help")
         
-        # Setup help tab content
-        self.setup_help_tab(help_tab)
+        # Create a status bar at the bottom
+        self.create_status_bar(main_frame)
+        
+        # Set the notebook as an instance variable so we can access it later
+        self.notebook = nb
+        
+        # Set an initial minimum window size
+        self.root.update_idletasks()
+        self.root.minsize(width=800, height=600)
+    
+    def create_toolbar(self, parent_frame):
+        """Create a toolbar with common actions."""
+        # Create a minimalist toolbar frame (empty)
+        toolbar_frame = ttk.Frame(parent_frame)
+        toolbar_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        # All informational labels have been removed as requested
+    
+    def create_status_bar(self, parent_frame):
+        """Create a status bar at the bottom of the main window."""
+        # Status bar frame
+        status_frame = ttk.Frame(parent_frame)
+        status_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(5, 0))
+        
+        # Add a separator above the status bar
+        separator = ttk.Separator(status_frame, orient="horizontal")
+        separator.pack(fill=tk.X, pady=(2, 5))
+        
+        # Status text
+        self.main_status_label = ttk.Label(status_frame, text="Ready", font=("Helvetica", 8))
+        self.main_status_label.pack(side=tk.LEFT, padx=5)
+        
+        # Add any additional status elements here if needed
+    
+    def setup_data_inspector_tab(self, parent_frame):
+        """
+        Set up the Data Inspector tab to display all data arrays for each image.
+        
+        This tab allows users to inspect the various data types stored in each batch:
+        - Depth images
+        - Poses (position and orientation)
+        - Frame indices
+        - Distances to victim
+        - Action labels
+        - Victim direction vectors
+        
+        Args:
+            parent_frame: The parent frame to add the data inspector to
+        """
+        # Main frame for the data inspector tab
+        inspector_frame = ttk.Frame(parent_frame)
+        inspector_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Create header with description
+        header_frame = ttk.Frame(inspector_frame)
+        header_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        header_label = ttk.Label(header_frame, 
+                              text="Data Inspector: View all dataset arrays for each frame", 
+                              style="Title.TLabel")
+        header_label.pack(side=tk.LEFT, padx=5, pady=5)
+        
+        # Add colormap selector to header frame
+        colormap_frame = ttk.Frame(header_frame)
+        colormap_frame.pack(side=tk.RIGHT, padx=5)
+        
+        ttk.Label(colormap_frame, text="Colormap:").pack(side=tk.LEFT, padx=(0, 5))
+        
+        # Create the colormap dropdown - reusing the main variable
+        colormap_dropdown = ttk.Combobox(colormap_frame, 
+                                     textvariable=self.colormap_var,
+                                     values=self.available_colormaps,
+                                     state="readonly",
+                                     width=10)
+        colormap_dropdown.pack(side=tk.LEFT)
+        
+        # Set initial value and bind change event
+        colormap_dropdown.set(self.colormap_var.get())
+        colormap_dropdown.bind("<<ComboboxSelected>>", self.change_colormap)
+        
+        # Create a frame for the image selection
+        selection_frame = ttk.Frame(inspector_frame)
+        selection_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Add image selector slider
+        ttk.Label(selection_frame, text="Image Index:").pack(side=tk.LEFT, padx=5)
+        self.data_image_idx = tk.IntVar(value=0)
+        
+        # We'll set the maximum value when a file is loaded
+        self.image_slider = ttk.Scale(selection_frame, from_=0, to=0,
+                                   orient=tk.HORIZONTAL, 
+                                   variable=self.data_image_idx,
+                                   command=self.update_data_display)
+        self.image_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        
+        # Add a label to show the current image index
+        self.image_idx_label = ttk.Label(selection_frame, text="0/0")
+        self.image_idx_label.pack(side=tk.LEFT, padx=5)
+        
+        # Navigation buttons
+        prev_btn = ttk.Button(selection_frame, text="Previous Batch", 
+                           command=self.prev_file)
+        prev_btn.pack(side=tk.LEFT, padx=5)
+        
+        next_btn = ttk.Button(selection_frame, text="Next Batch", 
+                           command=self.next_file)
+        next_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Create a frame for the data display panes
+        data_frame = ttk.Frame(inspector_frame)
+        data_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Create a PanedWindow to display both image and data
+        paned = ttk.PanedWindow(data_frame, orient=tk.HORIZONTAL)
+        paned.pack(fill=tk.BOTH, expand=True)
+        
+        # Left side - depth image display
+        image_frame = ttk.LabelFrame(paned, text="Depth Image")
+        paned.add(image_frame, weight=1)
+        
+        # Canvas for the image
+        self.data_image_canvas = tk.Canvas(image_frame, bg=self.bg_color, highlightthickness=0)
+        self.data_image_canvas.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Right side - data display
+        data_details_frame = ttk.LabelFrame(paned, text="Data Arrays")
+        paned.add(data_details_frame, weight=1)
+        
+        # Create a frame with scrollbars for the data
+        data_scroll_frame = ttk.Frame(data_details_frame)
+        data_scroll_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Add scrollbars
+        v_scrollbar = ttk.Scrollbar(data_scroll_frame, orient="vertical")
+        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        h_scrollbar = ttk.Scrollbar(data_scroll_frame, orient="horizontal")
+        h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+        
+        # Add text widget for displaying data
+        self.data_text = tk.Text(data_scroll_frame, wrap=tk.NONE, 
+                              yscrollcommand=v_scrollbar.set,
+                              xscrollcommand=h_scrollbar.set,
+                              height=20, width=40, 
+                              bg=self.bg_color, fg=self.fg_color)
+        self.data_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Configure scrollbars
+        v_scrollbar.config(command=self.data_text.yview)
+        h_scrollbar.config(command=self.data_text.xview)
+        
+        # Add a frame for action buttons
+        button_frame = ttk.Frame(inspector_frame)
+        button_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Button to view 3D visualization
+        view_3d_btn = ttk.Button(button_frame, text="View 3D", 
+                              command=self.view_current_3d)
+        view_3d_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Button to view full-size image
+        view_full_btn = ttk.Button(button_frame, text="View Full Size", 
+                                command=self.view_current_full_size)
+        view_full_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Add image navigation buttons
+        prev_img_btn = ttk.Button(button_frame, text="Previous Image", 
+                               command=self.prev_data_image)
+        prev_img_btn.pack(side=tk.LEFT, padx=5)
+        
+        next_img_btn = ttk.Button(button_frame, text="Next Image", 
+                               command=self.next_data_image)
+        next_img_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Button to copy data to clipboard
+        copy_btn = ttk.Button(button_frame, text="Copy Data", 
+                           command=self.copy_current_data)
+        copy_btn.pack(side=tk.LEFT, padx=5)
+    
+    def prev_file(self):
+        """
+        Navigate to the previous file in the dataset.
+        Saves the current file if needed before loading the previous one.
+        """
+        if not self.npz_files:
+            return
+        
+        self.save_current_file_if_modified()
+        
+        self.current_file_idx = (self.current_file_idx - 1) % len(self.npz_files)
+        self.load_file()
+    
+    def next_file(self):
+        """
+        Navigate to the next file in the dataset.
+        Saves the current file if needed before loading the next one.
+        """
+        if not self.npz_files:
+            return
+        
+        self.save_current_file_if_modified()
+        
+        self.current_file_idx = (self.current_file_idx + 1) % len(self.npz_files)
+        self.load_file()
+    
+    def update_data_display(self, *args):
+        """Update the data inspector display with the current image's data."""
+        if not self.current_batch or 'depths' not in self.current_batch:
+            return
+        
+        try:
+            # Get the current image index
+            current_idx = int(self.data_image_idx.get())
+            max_idx = len(self.current_batch['depths']) - 1
+            
+            # Ensure index is within bounds
+            if current_idx < 0:
+                current_idx = 0
+                self.data_image_idx.set(0)
+            elif current_idx > max_idx:
+                current_idx = max_idx
+                self.data_image_idx.set(max_idx)
+            
+            # Update the image index label
+            self.image_idx_label.config(text=f"{current_idx + 1}/{max_idx + 1}")
+            
+            # Update the image display
+            self.update_data_image(current_idx)
+            
+            # Update the data text
+            self.update_data_text(current_idx)
+            
+        except Exception as e:
+            logger.error("ImageViewer", f"Error updating data display: {str(e)}")
+            self.show_status_message(f"Error updating data display: {str(e)}", self.error_color)
+    
+    def update_data_image(self, image_idx):
+        """Update the depth image in the data inspector."""
+        try:
+            if not self.current_batch or 'depths' not in self.current_batch:
+                return
+            
+            depths = self.current_batch['depths']
+            if image_idx >= len(depths):
+                return
+            
+            # Get the image data
+            img_array = depths[image_idx]
+            
+            # Apply flip if needed
+            if self.flip_actions[image_idx]:
+                if self.flip_actions[image_idx] == "fliplr":
+                    img_array = np.fliplr(img_array)
+                elif self.flip_actions[image_idx] == "flipud":
+                    img_array = np.flipud(img_array)
+                elif self.flip_actions[image_idx] == "both":
+                    img_array = np.flipud(np.fliplr(img_array))
+            
+            # Prepare the image at appropriate resolution with the selected colormap
+            pil_img = self.prepare_image(img_array)
+            
+            # Get canvas dimensions
+            canvas_width = self.data_image_canvas.winfo_width()
+            canvas_height = self.data_image_canvas.winfo_height()
+            
+            # Resize image to fit canvas while maintaining aspect ratio
+            img_width, img_height = pil_img.size
+            
+            # Calculate scaling factor for width and height
+            if canvas_width > 0 and canvas_height > 0:
+                scale_w = canvas_width / img_width
+                scale_h = canvas_height / img_height
+                scale = min(scale_w, scale_h)
+                
+                # Calculate new dimensions
+                new_width = int(img_width * scale)
+                new_height = int(img_height * scale)
+                
+                # Resize image
+                pil_img = pil_img.resize((new_width, new_height), Image.LANCZOS)
+            
+            # Convert PIL image to PhotoImage
+            self.data_image_photo = ImageTk.PhotoImage(pil_img)
+            
+            # Clear previous image
+            self.data_image_canvas.delete("all")
+            
+            # Display new image centered in canvas
+            if canvas_width > 0 and canvas_height > 0:
+                x = (canvas_width - new_width) // 2
+                y = (canvas_height - new_height) // 2
+                self.data_image_canvas.create_image(x, y, anchor=tk.NW, image=self.data_image_photo)
+                
+                # Add action label overlay if available
+                if 'actions' in self.current_batch.files:
+                    try:
+                        action_labels = self.current_batch['actions']
+                        if image_idx < len(action_labels):
+                            action_label = int(action_labels[image_idx])
+                            # Map action label to human-readable text
+                            action_map = {
+                                0: "Right",
+                                1: "Left",
+                                2: "Forward",
+                                3: "Backward",
+                                4: "Up",
+                                5: "Down",
+                                6: "Rotate Right",
+                                7: "Rotate Left",
+                                8: "Hover"
+                            }
+                            action_text = f"Action: {action_map.get(action_label, f'Action {action_label}')}"
+                            
+                            # Draw a semi-transparent rectangle for better text visibility
+                            self.data_image_canvas.create_rectangle(
+                                x, y, x + new_width, y + 30,
+                                fill="black", stipple="gray50", outline="")
+                            
+                            # Display the action text
+                            self.data_image_canvas.create_text(
+                                x + 10, y + 15, 
+                                text=action_text,
+                                fill="white", anchor=tk.W)
+                    except Exception as e:
+                        logger.error("ImageViewer", f"Error displaying action label: {str(e)}")
+                
+                # Add colormap info
+                colormap_text = f"Colormap: {self.colormap_var.get()}"
+                self.data_image_canvas.create_rectangle(
+                    x, y + new_height - 30, x + new_width, y + new_height,
+                    fill="black", stipple="gray50", outline="")
+                self.data_image_canvas.create_text(
+                    x + 10, y + new_height - 15,
+                    text=colormap_text,
+                    fill="white", anchor=tk.W)
+        
+        except Exception as e:
+            logger.error("ImageViewer", f"Error updating data image: {str(e)}")
+    
+    def update_data_text(self, image_idx):
+        """Update the data text with all available information for the current image."""
+        try:
+            # Clear the current text
+            self.data_text.delete(1.0, tk.END)
+            
+            if not self.current_batch:
+                self.data_text.insert(tk.END, "No data loaded.")
+                return
+            
+            # Add a header
+            self.data_text.insert(tk.END, f"Data for Image #{image_idx + 1}\n", "header")
+            self.data_text.insert(tk.END, "=" * 40 + "\n\n")
+            
+            # Configure tags for text styling
+            self.data_text.tag_configure("header", font=("Helvetica", 12, "bold"), foreground=self.accent_color)
+            self.data_text.tag_configure("section", font=("Helvetica", 10, "bold"), foreground=self.accent_color)
+            self.data_text.tag_configure("key", font=("Helvetica", 10, "bold"))
+            self.data_text.tag_configure("value", font=("Helvetica", 10))
+            
+            # List all available arrays in the batch
+            data_types = [key for key in self.current_batch.files if key not in ('split')]
+            
+            # Display each data type that has the current image index
+            for data_type in data_types:
+                try:
+                    data_array = self.current_batch[data_type]
+                    
+                    # Skip if the array doesn't have this index
+                    if image_idx >= len(data_array):
+                        continue
+                    
+                    # Insert a section header for this data type
+                    self.data_text.insert(tk.END, f"\n{data_type.upper()}\n", "section")
+                    self.data_text.insert(tk.END, "-" * 40 + "\n")
+                    
+                    # Get the value for this image
+                    value = data_array[image_idx]
+                    
+                    # Format the output based on the data type
+                    if data_type == 'depths':
+                        # For depth images, show shape and statistics
+                        self.data_text.insert(tk.END, "Shape: ", "key")
+                        self.data_text.insert(tk.END, f"{value.shape}\n", "value")
+                        
+                        self.data_text.insert(tk.END, "Min depth: ", "key")
+                        self.data_text.insert(tk.END, f"{np.min(value):.6f}\n", "value")
+                        
+                        self.data_text.insert(tk.END, "Max depth: ", "key")
+                        self.data_text.insert(tk.END, f"{np.max(value):.6f}\n", "value")
+                        
+                        self.data_text.insert(tk.END, "Mean depth: ", "key")
+                        self.data_text.insert(tk.END, f"{np.mean(value):.6f}\n", "value")
+                    
+                    elif data_type == 'poses':
+                        # For poses, show position and orientation
+                        position = value[:3]
+                        orientation = value[3:] if len(value) > 3 else []
+                        
+                        self.data_text.insert(tk.END, "Position (x, y, z): ", "key")
+                        self.data_text.insert(tk.END, f"{position[0]:.4f}, {position[1]:.4f}, {position[2]:.4f}\n", "value")
+                        
+                        if len(orientation) == 3:
+                            self.data_text.insert(tk.END, "Orientation (roll, pitch, yaw): ", "key")
+                            self.data_text.insert(tk.END, f"{orientation[0]:.4f}, {orientation[1]:.4f}, {orientation[2]:.4f}\n", "value")
+                    
+                    elif data_type == 'actions':
+                        # For actions, show the numeric and human-readable values
+                        action_label = int(value)
+                        action_map = {
+                            0: "Right",
+                            1: "Left",
+                            2: "Forward",
+                            3: "Backward",
+                            4: "Up",
+                            5: "Down",
+                            6: "Rotate Right",
+                            7: "Rotate Left",
+                            8: "Hover"
+                        }
+                        action_text = action_map.get(action_label, f"Unknown ({action_label})")
+                        
+                        self.data_text.insert(tk.END, "Action label: ", "key")
+                        self.data_text.insert(tk.END, f"{action_label}\n", "value")
+                        
+                        self.data_text.insert(tk.END, "Action type: ", "key")
+                        self.data_text.insert(tk.END, f"{action_text}\n", "value")
+                    
+                    elif data_type == 'distances':
+                        # For distances, show the value
+                        self.data_text.insert(tk.END, "Distance to victim: ", "key")
+                        self.data_text.insert(tk.END, f"{value:.4f} meters\n", "value")
+                    
+                    elif data_type == 'victim_dirs':
+                        # For victim directions, show the vector components
+                        if len(value) >= 3:
+                            self.data_text.insert(tk.END, "Victim direction (normalized): ", "key")
+                            self.data_text.insert(tk.END, f"[{value[0]:.4f}, {value[1]:.4f}, {value[2]:.4f}]\n", "value")
+                            
+                            # Calculate magnitude
+                            magnitude = np.sqrt(np.sum(np.square(value[:3])))
+                            self.data_text.insert(tk.END, "Direction magnitude: ", "key")
+                            self.data_text.insert(tk.END, f"{magnitude:.4f}\n", "value")
+                    
+                    elif data_type == 'frames':
+                        # For frame indices, show the value
+                        self.data_text.insert(tk.END, "Frame index: ", "key")
+                        self.data_text.insert(tk.END, f"{value}\n", "value")
+                    
+                    else:
+                        # For other data types, show the raw values
+                        self.data_text.insert(tk.END, "Value: ", "key")
+                        self.data_text.insert(tk.END, f"{value}\n", "value")
+                
+                except Exception as e:
+                    self.data_text.insert(tk.END, f"Error displaying {data_type}: {str(e)}\n")
+            
+            # Scroll to top
+            self.data_text.see("1.0")
+            
+        except Exception as e:
+            logger.error("ImageViewer", f"Error updating data text: {str(e)}")
+            self.data_text.delete(1.0, tk.END)
+            self.data_text.insert(tk.END, f"Error: {str(e)}")
+    
+    def view_current_3d(self):
+        """View the current image in 3D visualization."""
+        current_idx = self.data_image_idx.get()
+        self.show_3d_visualization(current_idx)
+    
+    def view_current_full_size(self):
+        """View the current image in full size."""
+        current_idx = self.data_image_idx.get()
+        self.show_full_size_image(current_idx)
+    
+    def copy_current_data(self):
+        """Copy the currently displayed data to clipboard."""
+        try:
+            # Get the text content
+            data_text = self.data_text.get(1.0, tk.END)
+            
+            # Copy to clipboard
+            self.root.clipboard_clear()
+            self.root.clipboard_append(data_text)
+            
+            self.show_status_message("Data copied to clipboard", self.success_color)
+        except Exception as e:
+            logger.error("ImageViewer", f"Error copying data to clipboard: {str(e)}")
+            self.show_status_message(f"Error copying data: {str(e)}", self.error_color)
     
     def setup_viewer_tab(self, parent_frame):
         """Set up the viewer tab content."""
@@ -311,10 +835,27 @@ class ImageViewer:
         title_label = ttk.Label(header_frame, text="Depth Image Viewer", style="Title.TLabel")
         title_label.pack(side=tk.LEFT, padx=5)
         
+        # Colormap selection frame
+        colormap_frame = ttk.Frame(header_frame)
+        colormap_frame.pack(side=tk.RIGHT, padx=5)
+        
+        ttk.Label(colormap_frame, text="Colormap:").pack(side=tk.LEFT, padx=(0, 5))
+        
+        # Create the colormap dropdown
+        colormap_dropdown = ttk.Combobox(colormap_frame, 
+                                     textvariable=self.colormap_var,
+                                     values=self.available_colormaps,
+                                     state="readonly",
+                                     width=10)
+        colormap_dropdown.pack(side=tk.LEFT)
+        
+        # Set initial value and bind change event
+        colormap_dropdown.set(self.colormap_var.get())
+        colormap_dropdown.bind("<<ComboboxSelected>>", self.change_colormap)
+        
         # Window size control - REMOVING THIS BUTTON
         size_frame = ttk.Frame(header_frame)
         size_frame.pack(side=tk.RIGHT, padx=5)
-        
         
         # Logging controls
         log_frame = ttk.Frame(header_frame)
@@ -437,40 +978,37 @@ class ImageViewer:
         legend_frame = ttk.LabelFrame(parent_frame, text="Legend")
         legend_frame.pack(fill=tk.X, pady=(0, 10))
         
+        # Create a compact horizontal layout for the legend
         legend_content = ttk.Frame(legend_frame)
-        legend_content.pack(padx=10, pady=10)
+        legend_content.pack(padx=5, pady=3)  # Reduced padding
         
-        # Original image example
-        orig_frame = ttk.Frame(legend_content)
-        orig_frame.pack(side=tk.LEFT, padx=20)
-        
-        # Use a Canvas for the colored sample
-        self.orig_sample = tk.Canvas(orig_frame, width=20, height=20, bg=self.border_color, 
+        # Original image example - compact
+        self.orig_sample = tk.Canvas(legend_content, width=15, height=15, bg="#333333", 
                                 highlightthickness=1, highlightbackground=self.fg_color)
-        self.orig_sample.pack(side=tk.LEFT, padx=5)
+        self.orig_sample.pack(side=tk.LEFT, padx=2)
         
-        orig_label = ttk.Label(orig_frame, text="Original")
-        orig_label.pack(side=tk.LEFT)
+        orig_label = ttk.Label(legend_content, text="Original")
+        orig_label.pack(side=tk.LEFT, padx=(0, 10))
         
-        # Flipped image example
-        flipped_frame = ttk.Frame(legend_content)
-        flipped_frame.pack(side=tk.LEFT, padx=20)
-        
-        # Use a Canvas for the colored sample
-        self.flipped_sample = tk.Canvas(flipped_frame, width=20, height=20, bg=self.accent_color, 
+        # Flipped image example - compact
+        self.flipped_sample = tk.Canvas(legend_content, width=15, height=15, bg="#1e3a5f", 
                                    highlightthickness=1, highlightbackground=self.fg_color)
-        self.flipped_sample.pack(side=tk.LEFT, padx=5)
+        self.flipped_sample.pack(side=tk.LEFT, padx=2)
         
-        flipped_label = ttk.Label(flipped_frame, text="Flipped")
-        flipped_label.pack(side=tk.LEFT)
+        flipped_label = ttk.Label(legend_content, text="Flipped")
+        flipped_label.pack(side=tk.LEFT, padx=(0, 10))
         
-        # Current flip type indicator
+        # Current flip type indicator - now in the same row
         self.flip_status = ttk.Label(legend_content, text="", font=("Helvetica", 9, "italic"))
-        self.flip_status.pack(side=tk.RIGHT, padx=20)
+        self.flip_status.pack(side=tk.LEFT, padx=5)
+        
+        # Action labels info - now more compact
+        self.legend_label = ttk.Label(legend_frame, text="", font=("Helvetica", 9), anchor="w", justify=tk.LEFT)
+        self.legend_label.pack(fill=tk.X, padx=5, pady=3)
         
         # Info and status bar
         info_frame = ttk.Frame(parent_frame)
-        info_frame.pack(fill=tk.X, pady=(0, 10))
+        info_frame.pack(fill=tk.X, pady=(0, 5))  # Reduced padding
         
         # Info display - file and batch info
         self.info_text = ttk.Label(info_frame, style="Subtitle.TLabel")
@@ -480,9 +1018,9 @@ class ImageViewer:
         self.auto_label = ttk.Label(info_frame, foreground=self.accent_color)
         self.auto_label.pack(side=tk.RIGHT)
         
-        # Status message for operations feedback
+        # Status message for operations feedback - now more compact
         self.status_label = ttk.Label(parent_frame, font=("Helvetica", 9, "italic"))
-        self.status_label.pack(fill=tk.X, pady=(0, 10))
+        self.status_label.pack(fill=tk.X, pady=(0, 5))  # Reduced padding
         
         # Main grid frame (for batch view) with scrollable content
         grid_container = ttk.Frame(parent_frame)
@@ -497,7 +1035,7 @@ class ImageViewer:
         
         # Style for canvas frame with border
         style = ttk.Style()
-        style.configure("Canvas.TFrame", borderwidth=1, relief="solid")
+        style.configure("Canvas.TFrame", borderwidth=1, relief="solid", background=self.bg_color)
         
         # Define grid dimensions
         grid_height = getattr(self, 'grid_height_value', 300)  # Default height
@@ -519,13 +1057,25 @@ class ImageViewer:
         
         # Enable mouse wheel scrolling
         def _on_mousewheel(event):
-            self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+            try:
+                # Check if canvas still exists before scrolling
+                if hasattr(self, 'canvas') and self.canvas.winfo_exists():
+                    self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+            except Exception as e:
+                # Log the error but continue execution
+                logger.debug_at_level(DEBUG_L2, "ImageViewer", f"Mouse wheel error: {str(e)}")
         
         def _on_shift_mousewheel(event):
-            if event.state & 0x0001:  # Check if shift is pressed
-                self.canvas.xview_scroll(int(-1*(event.delta/120)), "units")
-            else:
-                self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+            try:
+                # Check if canvas still exists before scrolling
+                if hasattr(self, 'canvas') and self.canvas.winfo_exists():
+                    if event.state & 0x0001:  # Check if shift is pressed
+                        self.canvas.xview_scroll(int(-1*(event.delta/120)), "units")
+                    else:
+                        self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+            except Exception as e:
+                # Log the error but continue execution
+                logger.debug_at_level(DEBUG_L2, "ImageViewer", f"Shift mouse wheel error: {str(e)}")
         
         # Bind mouse wheel events
         self.canvas.bind_all("<MouseWheel>", _on_mousewheel)
@@ -592,8 +1142,8 @@ class ImageViewer:
                     photo = ImageTk.PhotoImage(pil_thumb)
                     
                     # Create background color based on flip state
-                    # Use light blue background if the image has been flipped
-                    bg_color = "#d4e6f1" if self.flip_actions[i] else "white"  # Light blue for flipped
+                    # For dark theme: use blue for flipped, dark gray for original
+                    bg_color = "#1e3a5f" if self.flip_actions[i] else "#333333"  # Dark blue for flipped
                     
                     # Create card-like frame for the image with fixed size
                     card_frame = tk.Frame(frame, bd=1, relief=tk.SOLID, 
@@ -613,10 +1163,33 @@ class ImageViewer:
                     self.thumbnail_photos.append(photo)
                     self.thumbnail_labels.append(img_label)
                     
-                    # Add image number and flip indicator
-                    flip_text = f"Image #{i+1}" + (" (flipped)" if self.flip_actions[i] else "")
+                    # Get action label if available
+                    action_text = ""
+                    if 'actions' in self.current_batch.files:
+                        try:
+                            action_labels = self.current_batch['actions']
+                            if i < len(action_labels):
+                                action_label = int(action_labels[i])
+                                # Map action label to human-readable text
+                                action_map = {
+                                    0: "Right",
+                                    1: "Left",
+                                    2: "Forward",
+                                    3: "Backward",
+                                    4: "Up",
+                                    5: "Down",
+                                    6: "Rotate Right",
+                                    7: "Rotate Left",
+                                    8: "Hover"
+                                }
+                                action_text = f" - {action_map.get(action_label, f'Action {action_label}')}"
+                        except Exception as e:
+                            logger.error("ImageViewer", f"Error reading action label for image {i}: {str(e)}")
+                    
+                    # Add image number, flip indicator, and action label with white text for dark theme
+                    flip_text = f"Image #{i+1}" + (" (flipped)" if self.flip_actions[i] else "") + action_text
                     num_label = tk.Label(card_frame, text=flip_text, bg=bg_color,
-                                      font=("Helvetica", 8))
+                                      font=("Helvetica", 8), fg=self.fg_color)
                     num_label.pack(pady=(2, 4))
                 else:
                     # Create a placeholder for missing images
@@ -642,7 +1215,7 @@ class ImageViewer:
                 # Create a text label as fallback
                 error_label = tk.Label(frame, text=f"Image {i+1}\nError", 
                                      width=thumb_width//10, height=thumb_width//12, 
-                                     bg="#f0f0f0")
+                                     bg=self.hover_color, fg=self.fg_color)
                 error_label.pack(pady=5)
         
         # If there are more images than displayed, add a message
@@ -651,7 +1224,7 @@ class ImageViewer:
             more_frame.pack(fill=tk.X, pady=5)
             
             more_label = ttk.Label(more_frame, text=f"+ {batch_size - max_images} more images not shown",
-                                font=("Helvetica", 9, "italic"), foreground="#7f8c8d")
+                                font=("Helvetica", 9, "italic"), foreground="#aaaaaa")
             more_label.pack(pady=5)
         
         # Update the canvas scrollregion
@@ -825,7 +1398,7 @@ class ImageViewer:
         help_content = """Depth Image Viewer - Help
 
 Overview
-This application allows you to view and manipulate depth image datasets stored in .npz files. You can browse through files, view images in a grid, flip images, and visualize them in 3D.
+This application allows you to view and manipulate depth image datasets stored in .npz files. You can browse through files, view images in a grid, flip images, visualize them in 3D, and perform batch operations across multiple files.
 
 Main Viewer Tab
 
@@ -842,22 +1415,55 @@ Actions
 - Flip Left-Right: Horizontally flip all images in the current file
 - Flip Up-Down: Vertically flip all images in the current file
 - Auto-Advance: Automatically move through files while applying flips
+  - Left-Right: Auto-advance with left-right flipping
+  - Up-Down: Auto-advance with up-down flipping
+  - Stop: Halt auto-advance operation
 
 Image Grid
 - Click on any thumbnail: Open a full-size view of the image
+- Color coding: Blue background indicates flipped images, dark gray indicates original
 - Full-size view features:
   - Scrollable view for large images
-  - "View 3D" button to see a 3D visualization of the depth data
+  - Left/Right arrow keys: Navigate between images
+  - "View 3D" button: See a 3D visualization of the depth data
   - Information about image dimensions and flip status
+
+Colormap Selection
+- Dropdown menu to select visualization style:
+  - grayscale: Standard grayscale visualization
+  - viridis, plasma, inferno, magma, jet: Colored visualizations
+
+Data Inspector Tab
+
+Navigation
+- Previous/Next Batch buttons: Navigate between .npz files in the dataset
+- Image slider: Quickly move between images in the current batch
+- Previous/Next Image buttons: Step through images one by one
+
+Data Display
+- Depth Image: View the current image with the selected colormap
+- Data Arrays: View all data associated with the current image
+  - Depths: Depth image dimensions and statistics (min, max, mean depth)
+  - Poses: Position (x, y, z) and orientation (roll, pitch, yaw)
+  - Actions: Action labels with human-readable descriptions
+  - Distances: Distance to victim measurements
+  - Victim directions: Direction vectors to victim
+  - Frames: Frame indices
+
+Actions
+- View 3D: Open a 3D visualization of the current depth image
+- View Full Size: Open a larger view of the current image
+- Copy Data: Copy all displayed data to clipboard
 
 3D Visualization
 - Interactive 3D surface: Click and drag to rotate the view
 - View angle buttons: Quickly switch between different perspectives
-  - Top: View from above
-  - Side: View from the side
-  - Front: View from the front side
-  - Isometric: View from the side, but with a 45 degree angle
-- Colormap: Depth values are represented by colors
+  - Top View: Bird's-eye view from above
+  - Side View: View from the side perspective
+  - Front View: View from the front perspective
+  - Isometric View: View at a 45-degree angle
+- Colormap selection: Change the 3D plot's color scheme
+- Navigation: Use left/right arrow keys to move between images
 
 Batch Operations Tab
 
@@ -866,19 +1472,31 @@ Directory Selection
 - Output Directory: Choose where to save the processed files
 
 Operation Options
-- Flip Type: Choose between Left-Right flip, Up-Down flip, or Copy only
+- Flip Type: 
+  - Left-Right: Horizontally flip all images
+  - Up-Down: Vertically flip all images
+  - No Flip (Copy Only): Copy files without modification
 - Show Preview: Enable to see a preview of the operation in the Viewer tab
 - Quick Flip Preview: Quickly apply different flip types to see the results
 
 Execution
 - Execute Batch Operation: Process all files in the source directory
 - Progress indicators: Track the progress of the batch operation
-- Operation Log: View details about the processing
+- Operation Log: View detailed information about the processing
+
+Settings and Customization
+- Log Level: Change the logging verbosity (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+- Verbose Mode: Toggle detailed logging for troubleshooting
 
 Tips
 - Changes are automatically saved when navigating between files
 - Click on thumbnails to see full-size images and 3D visualizations
 - The 3D view can be rotated with your mouse for better depth perception
+- Use the colormap selector to change visualization style
+- For easier navigation in large datasets, use the file selector dropdown
+- Action labels are shown in thumbnails and full-size views when available
+- In batch operations, processed files maintain the same directory structure as the source
+- You can copy data from the Data Inspector to analyze in external tools
 """
         
         # Insert the help content
@@ -898,19 +1516,23 @@ Tips
         
         # Map of headings to apply formatting
         heading1_lines = ["Depth Image Viewer - Help"]
-        heading2_lines = ["Overview", "Main Viewer Tab", "Batch Operations Tab", "Tips"]
-        heading3_lines = ["Navigation", "Actions", "Image Grid", "3D Visualization", 
-                       "Directory Selection", "Operation Options", "Execution"]
+        heading2_lines = ["Overview", "Main Viewer Tab", "Data Inspector Tab", "3D Visualization", "Batch Operations Tab", "Settings and Customization", "Tips"]
+        heading3_lines = ["Navigation", "Actions", "Image Grid", "Colormap Selection", "Data Display", "Directory Selection", "Operation Options", "Execution"]
         
         # Bold text in bullet points - feature names
         bold_phrases = [
-            "Previous/Next buttons", "File selector dropdown", 
-            "Flip Left-Right", "Flip Up-Down", "Auto-Advance",
-            "Click on any thumbnail", "Full-size view features",
-            "Interactive 3D surface", "View angle buttons", "Colormap",
+            "Previous/Next buttons", "File selector dropdown", "Keyboard shortcuts",
+            "Flip Left-Right", "Flip Up-Down", "Auto-Advance", "Left-Right", "Up-Down", "Stop",
+            "Click on any thumbnail", "Color coding", "Full-size view features",
+            "Dropdown menu", "grayscale", "viridis", "plasma", "inferno", "magma", "jet",
+            "Image slider", "Previous/Next Image buttons",
+            "Depth Image", "Data Arrays", "Depths", "Poses", "Actions", "Distances", "Victim directions", "Frames",
+            "View 3D", "View Full Size", "Copy Data",
+            "Interactive 3D surface", "View angle buttons", "Top View", "Side View", "Front View", "Isometric View", "Colormap selection", "Navigation",
             "Source Directory", "Output Directory",
             "Flip Type", "Show Preview", "Quick Flip Preview",
-            "Execute Batch Operation", "Progress indicators", "Operation Log"
+            "Execute Batch Operation", "Progress indicators", "Operation Log",
+            "Log Level", "Verbose Mode"
         ]
         
         for i, line in enumerate(lines):
@@ -1262,88 +1884,142 @@ Tips
                 
             # Use glob to find all .npz files recursively
             all_files = glob.glob(os.path.join(self.dataset_dir, "**", "*.npz"), recursive=True)
-            all_files.sort()  # Sort files alphabetically
+            
+            # Define a sorting function specifically for batch numbers
+            import re
+            def batch_number_sort_key(filepath):
+                # Extract the filename without path or extension
+                filename = os.path.basename(filepath)
+                name, _ = os.path.splitext(filename)
+                
+                # Extract batch number - looking for patterns like 000001, 000002, etc.
+                # First try to find a 6-digit number
+                match = re.search(r'0*(\d+)', name)
+                if match:
+                    # Extract the matched number and convert to integer
+                    batch_num = int(match.group(1))
+                    logger.debug_at_level(DEBUG_L3, "ImageViewer", f"File {filename} has batch number {batch_num}")
+                    return batch_num
+                else:
+                    # If no number found, return a large value to sort non-numbered files last
+                    logger.debug_at_level(DEBUG_L3, "ImageViewer", f"File {filename} has no batch number")
+                    return float('inf')
+            
+            # Sort files by batch number
+            all_files.sort(key=batch_number_sort_key)
+            
+            logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Found {len(all_files)} .npz files, sorted by batch number")
             return all_files
         except Exception as e:
             logger.error("ImageViewer", f"Error finding .npz files: {str(e)}")
             return []
     
     def load_initial_file(self):
-        """Load the first file in the dataset."""
+        """
+        Load the first file from the npz_files list when the application starts.
+        Also handles the case when no files are found.
+        """
         if not self.npz_files:
-            msg = "No depth image files found in dataset directory."
-            logger.warning("ImageViewer", msg)
-            self.info_text.configure(text=msg)
-            self.show_status_message("No depth image files found.", self.error_color)
+            self.show_status_message("No NPZ files found in the dataset directory.", self.warning_color)
+            self.current_batch = None
+            self.update_file_selector()
+            self.update_data_inspector()  # Update data inspector
             return
         
+        self.current_file_idx = 0
         self.load_file()
     
     def load_file(self):
-        """Load the current file and display its images."""
-        if not self.npz_files or self.current_file_idx >= len(self.npz_files):
-            self.show_status_message("No valid file to load", self.error_color)
-            return
+        """
+        Load the current file from the npz_files list.
         
-        current_file = self.npz_files[self.current_file_idx]
-        logger.info("ImageViewer", f"Loading file: {os.path.basename(current_file)}")
-        
+        This loads all data arrays from the NPZ file, extracts the depth array,
+        and sets up the batch grid display.
+        """
         try:
-            # Load the npz file
-            self.current_batch = np.load(current_file)
+            if not self.npz_files or self.current_file_idx >= len(self.npz_files):
+                self.current_batch = None
+                self.data_text.delete(1.0, tk.END)
+                self.data_text.insert(tk.END, "No files to load.")
+                return
             
-            # Reset flip actions for the new file
-            self.flip_actions = [None] * len(self.current_batch['depths'])
-            self.flipped_images = None
+            # Get the current file path
+            file_path = self.npz_files[self.current_file_idx]
             
-            # Ensure canvas has the correct background color
-            self.canvas.configure(bg=self.bg_color)
+            # Check if the file exists
+            if not os.path.exists(file_path):
+                self.show_status_message(f"File not found: {file_path}", self.error_color)
+                return
             
-            # Update the UI
-            self.info_text.configure(
-                text=f"File {self.current_file_idx + 1}/{len(self.npz_files)}: "
-                     f"{os.path.basename(current_file)} "
-                     f"({len(self.current_batch['depths'])} images)"
-            )
+            # Update the window title with the current file
+            filename = os.path.basename(file_path)
+            self.root.title(f"Depth Image Viewer v0.4.0 - {filename}")
             
-            # Update the file selector
-            self.update_file_selector()
-            
-            # Display the images
-            self.setup_batch_grid()
-            
-            # Update legend
-            self.update_legend_status()
-            
-            # Apply batch preview if applicable and explicitly enabled
-            if hasattr(self, 'preview_var') and self.preview_var.get():
-                try:
-                    self.update_batch_preview()
-                except Exception as e:
-                    logger.warning("ImageViewer", f"Could not apply batch preview: {str(e)}")
-            
-            self.show_status_message(f"Loaded {os.path.basename(current_file)}")
-        except Exception as e:
-            logger.error("ImageViewer", f"Error loading file: {str(e)}")
-            self.show_status_message(f"Error loading file: {str(e)}", self.error_color)
-            
-            # If we failed to load, try to load the next file
-            self.current_batch = None
-            self.current_file_idx = (self.current_file_idx + 1) % len(self.npz_files)
+            # Load the NPZ file
             try:
-                # Recursive call to try the next file
-                # Add a guard to prevent infinite recursion
-                if not hasattr(self, '_load_retry_count'):
-                    self._load_retry_count = 0
+                self.current_batch = np.load(file_path, allow_pickle=True)
                 
-                self._load_retry_count += 1
-                if self._load_retry_count <= 3:  # Only retry 3 times max
-                    self.load_file()
-                else:
-                    self.show_status_message("Failed to load any valid files after multiple attempts", self.error_color)
-                    self._load_retry_count = 0
-            except Exception:
-                self._load_retry_count = 0  # Reset the counter
+                # Check if the file contains depths array
+                if 'depths' not in self.current_batch:
+                    self.show_status_message(f"No depths array in file: {filename}", self.error_color)
+                    return
+                
+                                                # Initialize flip actions for all images
+                self.flip_actions = [None] * len(self.current_batch['depths'])
+                
+                # Set up the batch grid display
+                self.setup_batch_grid()
+                
+                                                # Update the file display
+                self.update_file_selector()
+                
+                # Update Data Inspector
+                self.update_data_inspector()
+                
+                                                # Update preview and legend status
+                self.update_batch_preview()
+                self.update_legend_status()
+                
+                # Show status message
+                self.show_status_message(f"Loaded file: {filename} ({len(self.flip_actions)} images)", self.success_color)
+                
+            except Exception as e:
+                self.show_status_message(f"Error loading file: {str(e)}", self.error_color)
+                logger.error("ImageViewer", f"Error loading file {file_path}: {str(e)}")
+        
+        except Exception as e:
+            self.show_status_message(f"Error: {str(e)}", self.error_color)
+            logger.error("ImageViewer", f"Error in load_file: {str(e)}")
+    
+    def update_data_inspector(self):
+        """Update the Data Inspector tab with the current batch data."""
+        try:
+            if not self.current_batch or 'depths' not in self.current_batch:
+                # Reset the data inspector
+                self.data_image_idx.set(0)
+                self.image_slider.config(from_=0, to=0)
+                self.image_idx_label.config(text="0/0")
+                self.data_image_canvas.delete("all")
+                self.data_text.delete(1.0, tk.END)
+                self.data_text.insert(tk.END, "No data loaded.")
+                return
+            
+            # Update the slider range
+            max_idx = len(self.current_batch['depths']) - 1
+            self.image_slider.config(from_=0, to=max_idx)
+            
+            # Update the image index label
+            self.image_idx_label.config(text=f"1/{max_idx + 1}")
+            
+            # Reset to first image
+            self.data_image_idx.set(0)
+            
+            # Update display
+            self.update_data_display()
+            
+        except Exception as e:
+            logger.error("ImageViewer", f"Error updating data inspector: {str(e)}")
+            self.show_status_message(f"Error updating data inspector: {str(e)}", self.error_color)
     
     def save_current_file(self):
         """
@@ -1604,36 +2280,64 @@ Tips
         else:
             normalized = np.zeros_like(arr, dtype=np.uint8)
         
-        # Create PIL image
-        img = Image.fromarray(normalized)
-        return img
+        # Get the selected colormap
+        colormap_name = self.colormap_var.get()
+        
+        # If grayscale is selected, return directly
+        if colormap_name == "grayscale":
+            return Image.fromarray(normalized)
+        
+        # Apply the selected colormap
+        try:
+            import matplotlib.cm as cm
+            
+            # Get the appropriate colormap
+            if hasattr(cm, colormap_name):
+                colormap = getattr(cm, colormap_name)
+            else:
+                # Default to viridis if the selected colormap doesn't exist
+                colormap = cm.viridis
+                
+            # Apply colormap to the normalized data
+            colored = colormap(normalized)
+            
+            # Convert from float RGBA to uint8 RGB
+            colored_rgb = (colored[:, :, :3] * 255).astype(np.uint8)
+            
+            # Create PIL image from the colored array
+            img = Image.fromarray(colored_rgb)
+            
+            return img
+            
+        except Exception as e:
+            # Fallback to grayscale if colormap fails
+            logger.debug_at_level(DEBUG_L2, "ImageViewer", f"Colormap failed, using grayscale: {str(e)}")
+            return Image.fromarray(normalized)
     
     def next_file(self):
-        """Load the next file in the dataset."""
+        """
+        Navigate to the next file in the dataset.
+        Saves the current file if needed before loading the next one.
+        """
         if not self.npz_files:
             return
         
-        # Save any changes to the current file
         self.save_current_file_if_modified()
         
-        # Move to the next file
         self.current_file_idx = (self.current_file_idx + 1) % len(self.npz_files)
-        
-        # Load the new file
         self.load_file()
     
     def prev_file(self):
-        """Load the previous file in the dataset."""
+        """
+        Navigate to the previous file in the dataset.
+        Saves the current file if needed before loading the previous one.
+        """
         if not self.npz_files:
             return
         
-        # Save any changes to the current file
         self.save_current_file_if_modified()
         
-        # Move to the previous file
         self.current_file_idx = (self.current_file_idx - 1) % len(self.npz_files)
-        
-        # Load the new file
         self.load_file()
     
     def save_current_file_if_modified(self):
@@ -1660,9 +2364,9 @@ Tips
     def update_file_selector(self):
         """Update the file selector with the current file names."""
         if self.file_display_names:
+            # Use original filenames without position numbers in the dropdown
             self.file_selector['values'] = self.file_display_names
             self.file_selector.current(self.current_file_idx)
-            
     
     def setup_batch_grid(self):
         """Set up the grid for batch view."""
@@ -1711,7 +2415,7 @@ Tips
             
             # Style for canvas frame with border
             style = ttk.Style()
-            style.configure("Canvas.TFrame", borderwidth=1, relief="solid")
+            style.configure("Canvas.TFrame", borderwidth=1, relief="solid", background=self.bg_color)
             
             # Create a canvas with scrollbars for both vertical and horizontal scrolling
             self.canvas = tk.Canvas(canvas_frame, bg=self.bg_color, bd=0, highlightthickness=0, 
@@ -1726,13 +2430,25 @@ Tips
             
             # Enable mouse wheel scrolling
             def _on_mousewheel(event):
-                self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+                try:
+                    # Check if canvas still exists before scrolling
+                    if hasattr(self, 'canvas') and self.canvas.winfo_exists():
+                        self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+                except Exception as e:
+                    # Log the error but continue execution
+                    logger.debug_at_level(DEBUG_L2, "ImageViewer", f"Mouse wheel error: {str(e)}")
             
             def _on_shift_mousewheel(event):
-                if event.state & 0x0001:  # Check if shift is pressed
-                    self.canvas.xview_scroll(int(-1*(event.delta/120)), "units")
-                else:
-                    self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+                try:
+                    # Check if canvas still exists before scrolling
+                    if hasattr(self, 'canvas') and self.canvas.winfo_exists():
+                        if event.state & 0x0001:  # Check if shift is pressed
+                            self.canvas.xview_scroll(int(-1*(event.delta/120)), "units")
+                        else:
+                            self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+                except Exception as e:
+                    # Log the error but continue execution
+                    logger.debug_at_level(DEBUG_L2, "ImageViewer", f"Shift mouse wheel error: {str(e)}")
             
             # Bind mouse wheel events
             self.canvas.bind_all("<MouseWheel>", _on_mousewheel)
@@ -1789,8 +2505,8 @@ Tips
                     photo = ImageTk.PhotoImage(pil_thumb)
                     
                     # Create background color based on flip state
-                    # Use light blue background if the image has been flipped
-                    bg_color = "#d4e6f1" if self.flip_actions[i] else "white"  # Light blue for flipped
+                    # For dark theme: use blue for flipped, dark gray for original
+                    bg_color = "#1e3a5f" if self.flip_actions[i] else "#333333"  # Dark blue for flipped
                     
                     # Create card-like frame for the image with fixed size
                     card_frame = tk.Frame(frame, bd=1, relief=tk.SOLID, 
@@ -1810,10 +2526,33 @@ Tips
                     self.thumbnail_photos.append(photo)
                     self.thumbnail_labels.append(img_label)
                     
-                    # Add image number and flip indicator
-                    flip_text = f"Image #{i+1}" + (" (flipped)" if self.flip_actions[i] else "")
+                    # Get action label if available
+                    action_text = ""
+                    if 'actions' in self.current_batch.files:
+                        try:
+                            action_labels = self.current_batch['actions']
+                            if i < len(action_labels):
+                                action_label = int(action_labels[i])
+                                # Map action label to human-readable text
+                                action_map = {
+                                    0: "Right",
+                                    1: "Left",
+                                    2: "Forward",
+                                    3: "Backward",
+                                    4: "Up",
+                                    5: "Down",
+                                    6: "Rotate Right",
+                                    7: "Rotate Left",
+                                    8: "Hover"
+                                }
+                                action_text = f" - {action_map.get(action_label, f'Action {action_label}')}"
+                        except Exception as e:
+                            logger.error("ImageViewer", f"Error reading action label for image {i}: {str(e)}")
+                    
+                    # Add image number, flip indicator, and action label with white text for dark theme
+                    flip_text = f"Image #{i+1}" + (" (flipped)" if self.flip_actions[i] else "") + action_text
                     num_label = tk.Label(card_frame, text=flip_text, bg=bg_color,
-                                      font=("Helvetica", 8))
+                                      font=("Helvetica", 8), fg=self.fg_color)
                     num_label.pack(pady=(2, 4))
                     
                     # Update every 20 images to keep UI responsive
@@ -1825,7 +2564,7 @@ Tips
                     # Create a text label as fallback
                     error_label = tk.Label(frame, text=f"Image {i+1}\nError", 
                                          width=thumb_width//10, height=thumb_width//12, 
-                                         bg="#f0f0f0")
+                                         bg=self.hover_color, fg=self.fg_color)
                     error_label.pack(pady=5)
             
             # If there are more images than displayed, add a message
@@ -1834,7 +2573,7 @@ Tips
                 more_frame.pack(fill=tk.X, pady=5)
                 
                 more_label = ttk.Label(more_frame, text=f"+ {batch_size - max_images} more images not shown",
-                                    font=("Helvetica", 9, "italic"), foreground="#7f8c8d")
+                                    font=("Helvetica", 9, "italic"), foreground="#aaaaaa")
                 more_label.pack(pady=5)
             
             # Update the canvas scrollregion
@@ -2123,7 +2862,12 @@ Tips
         
         # Update UI
         self.file_selector.current(self.current_file_idx)
-        self.show_status_message(f"Loaded file: {self.file_display_names[self.current_file_idx]}")
+        
+        # Get the original filename for the status message
+        filename = os.path.basename(self.npz_files[self.current_file_idx])
+        name, _ = os.path.splitext(filename)
+        
+        self.show_status_message(f"Loaded file: {name}")
         
         # Apply batch preview if applicable
         if hasattr(self, 'preview_var') and self.preview_var.get():
@@ -2213,7 +2957,7 @@ Tips
         # Show status message
         file_count = len(self.npz_files)
         if file_count > 0:
-            self.show_status_message(f"Loaded {file_count} files from {self.dataset_dir}")
+            self.show_status_message(f"Loaded {file_count} files from {self.dataset_dir} (sorted by batch number)")
             
             # Apply batch preview if applicable
             if hasattr(self, 'preview_var') and self.preview_var.get():
@@ -2288,7 +3032,8 @@ Tips
             self.show_status_message(f"Applied {flip_type} preview to all images")
 
     def update_legend_status(self):
-        """Update the legend to reflect the current flip status."""
+        """Update the legend to reflect the current flip status and action labels."""
+        # Update flip status
         if not hasattr(self, 'flipped_sample') or not hasattr(self, 'orig_sample'):
             return
         
@@ -2301,9 +3046,9 @@ Tips
         
         # If all images have the same flip status
         if flipped_count == 0:
-            # No flip - highlight original color
-            self.orig_sample.configure(bg="white")
-            self.flipped_sample.configure(bg="#d4e6f1")  # Light blue for flipped
+            # No flip - highlight original color (dark gray in dark theme)
+            self.orig_sample.configure(bg="#333333")
+            self.flipped_sample.configure(bg="#1e3a5f")  # Dark blue for flipped
             
             if hasattr(self, 'flip_status'):
                 self.flip_status.configure(text="No flip applied")
@@ -2313,8 +3058,8 @@ Tips
             flip_types = set(a for a in self.flip_actions if a is not None)
             
             # Highlight flipped color
-            self.orig_sample.configure(bg="white")
-            self.flipped_sample.configure(bg="#d4e6f1")  # Light blue for flipped
+            self.orig_sample.configure(bg="#333333")
+            self.flipped_sample.configure(bg="#1e3a5f")  # Dark blue for flipped
             
             if hasattr(self, 'flip_status'):
                 if len(flip_types) == 1:
@@ -2330,11 +3075,69 @@ Tips
         
         else:
             # Some flipped, some not
-            self.orig_sample.configure(bg="white")
-            self.flipped_sample.configure(bg="#d4e6f1")  # Light blue for flipped
+            self.orig_sample.configure(bg="#333333")
+            self.flipped_sample.configure(bg="#1e3a5f")  # Dark blue for flipped
             
             if hasattr(self, 'flip_status'):
-                self.flip_status.configure(text=f"Mixed flips ({flipped_count}/{total_count} flipped)")
+                self.flip_status.configure(text=f"Mixed flips ({flipped_count}/{total_count})")
+            
+        # Update legend label with file and action information in a compact horizontal format
+        if hasattr(self, 'legend_label'):
+            try:
+                file_info = "No file loaded"
+                action_counts = {}
+                
+                if self.current_batch and 'depths' in self.current_batch.files:
+                    # Get the full filename
+                    current_file = self.npz_files[self.current_file_idx]
+                    filename = os.path.basename(current_file)
+                    name, _ = os.path.splitext(filename)
+                    
+                    # Get number of images
+                    total_images = len(self.current_batch['depths'])
+                    
+                    # Create compact file info
+                    file_info = f"File: {name} | Images: {total_images}"
+                    
+                    # Add action label info if available
+                    if 'actions' in self.current_batch.files:
+                        try:
+                            actions = self.current_batch['actions']
+                            # Count occurrences of each action label
+                            for action in actions:
+                                action_int = int(action)
+                                action_counts[action_int] = action_counts.get(action_int, 0) + 1
+                        except Exception as e:
+                            logger.error("ImageViewer", f"Error processing action labels: {str(e)}")
+                
+                # Format action counts in a compact, horizontal way if we have any
+                if action_counts:
+                    action_map = {
+                        0: "Right",
+                        1: "Left",
+                        2: "Forward",
+                        3: "Backward",
+                        4: "Up",
+                        5: "Down",
+                        6: "Rotate Right",
+                        7: "Rotate Left",
+                        8: "Hover"
+                    }
+                    
+                    # Build compact action text
+                    action_text = " | Actions: "
+                    action_items = []
+                    for label, count in sorted(action_counts.items()):
+                        action_items.append(f"{action_map.get(label, f'A{label}')}: {count}")
+                    
+                    action_text += ", ".join(action_items)
+                    file_info += action_text
+                
+                # Update the legend text with the compact format
+                self.legend_label.configure(text=file_info)
+                    
+            except Exception as e:
+                logger.error("ImageViewer", f"Error updating legend label: {str(e)}")
 
     def on_window_resize(self, event):
         """Handle window resize events to reflow the grid."""
@@ -2560,7 +3363,30 @@ Tips
             elif self.flip_actions[image_idx] == "both":
                 flip_status = "Flipped Both Ways"
             
-            info_text = f"Image #{image_idx + 1} • Size: {img_width}x{img_height} • Status: {flip_status}"
+            # Get action label if available
+            action_text = ""
+            if 'actions' in self.current_batch.files:
+                try:
+                    action_labels = self.current_batch['actions']
+                    if image_idx < len(action_labels):
+                        action_label = int(action_labels[image_idx])
+                        # Map action label to human-readable text
+                        action_map = {
+                            0: "Right",
+                            1: "Left",
+                            2: "Forward",
+                            3: "Backward",
+                            4: "Up",
+                            5: "Down",
+                            6: "Rotate Right",
+                            7: "Rotate Left",
+                            8: "Hover"
+                        }
+                        action_text = f" • Action: {action_map.get(action_label, f'Action {action_label}')}"
+                except Exception as e:
+                    logger.error("ImageViewer", f"Error reading action label for image {image_idx}: {str(e)}")
+            
+            info_text = f"Image #{image_idx + 1} • Status: {flip_status}{action_text}"
             info_label = ttk.Label(info_frame, text=info_text)
             info_label.pack(side=tk.LEFT)
             
@@ -2575,17 +3401,47 @@ Tips
             
             # Enable mouse wheel scrolling on the canvas
             def _on_mousewheel(event):
-                canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+                try:
+                    # Check if canvas still exists before scrolling
+                    if canvas.winfo_exists():
+                        canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+                except Exception as e:
+                    # Silently ignore errors if canvas is gone
+                    pass
             
             def _on_shift_mousewheel(event):
-                if event.state & 0x0001:  # Check if shift is pressed
-                    canvas.xview_scroll(int(-1*(event.delta/120)), "units")
-                else:
-                    canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+                try:
+                    # Check if canvas still exists before scrolling
+                    if canvas.winfo_exists():
+                        if event.state & 0x0001:  # Check if shift is pressed
+                            canvas.xview_scroll(int(-1*(event.delta/120)), "units")
+                        else:
+                            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+                except Exception as e:
+                    # Silently ignore errors if canvas is gone
+                    pass
+
+            # Bind mouse wheel events using '<bind_all>' with a unique tag for this popup
+            wheel_tag = f"wheel_binding_{id(popup)}"
+            shift_wheel_tag = f"shift_wheel_binding_{id(popup)}"
+            canvas.bind_all(f"<MouseWheel>", _on_mousewheel, add="+")
+            canvas.bind_all(f"<Shift-MouseWheel>", _on_shift_mousewheel, add="+")
             
-            # Bind mouse wheel events
-            canvas.bind_all("<MouseWheel>", _on_mousewheel)
-            canvas.bind_all("<Shift-MouseWheel>", _on_shift_mousewheel)
+            # Function to clean up bindings when the popup is closed
+            def _on_popup_close():
+                try:
+                    # Unbind all mouse wheel events when the popup is destroyed
+                    canvas.unbind_all("<MouseWheel>")
+                    canvas.unbind_all("<Shift-MouseWheel>")
+                except:
+                    pass  # Ignore exceptions during cleanup
+                popup.destroy()
+                
+            # Replace the direct destroy with our cleanup function
+            close_btn.configure(command=_on_popup_close)
+            
+            # Also handle window close button
+            popup.protocol("WM_DELETE_WINDOW", _on_popup_close)
             
             # Bind keyboard navigation
             def on_key(event):
@@ -2594,7 +3450,7 @@ Tips
                 elif event.keysym == "Right":
                     self.navigate_fullsize_image(popup, image_idx + 1)
                 elif event.keysym == "Escape":
-                    popup.destroy()
+                    _on_popup_close()  # Use our cleanup function
             
             popup.bind("<Key>", on_key)
             
@@ -2685,6 +3541,9 @@ Tips
             # Set the window size
             popup.geometry(f"{window_width}x{window_height}")
             
+            # Configure the popup with the same dark theme
+            popup.configure(bg=self.bg_color)
+            
             # Create a style for the view buttons - larger and more visible
             style = ttk.Style()
             style.configure("ViewBtn.TButton", font=("Helvetica", 11, "bold"), padding=6)
@@ -2692,6 +3551,26 @@ Tips
             # Create a separate frame for view angle controls at the top of the window
             view_controls_frame = ttk.Frame(popup)
             view_controls_frame.pack(fill=tk.X, padx=10, pady=5)
+            
+            # Add colormap selection
+            colormap_frame = ttk.Frame(view_controls_frame)
+            colormap_frame.pack(fill=tk.X, padx=10, pady=5)
+            
+            ttk.Label(colormap_frame, text="Colormap:").pack(side=tk.LEFT, padx=(0, 5))
+            
+            # Create a local colormap variable for this visualization
+            # For 3D visualization, we'll use a different default colormap that works better for 3D
+            # If user has chosen a colormap other than grayscale, use that; otherwise default to viridis for 3D
+            vis_default = "viridis" if self.colormap_var.get() == "grayscale" else self.colormap_var.get()
+            vis_colormap_var = tk.StringVar(value=vis_default)
+            
+            # Create the colormap dropdown
+            colormap_dropdown = ttk.Combobox(colormap_frame, 
+                                         textvariable=vis_colormap_var,
+                                         values=self.available_colormaps,
+                                         state="readonly",
+                                         width=10)
+            colormap_dropdown.pack(side=tk.LEFT, padx=5)
             
             # Add view angle controls in a more prominent position
             view_frame = ttk.LabelFrame(view_controls_frame, text="View Angle Controls")
@@ -2725,12 +3604,15 @@ Tips
             # Handle NaN or inf values
             Z = np.nan_to_num(Z, nan=0.0, posinf=0.0, neginf=0.0)
             
-            # Plot the surface
-            surf = ax.plot_surface(X, Y, Z, cmap='viridis', 
+            # Plot the surface with the selected colormap
+            colormap = vis_colormap_var.get()
+            if colormap == "grayscale":
+                colormap = "gray"
+            surf = ax.plot_surface(X, Y, Z, cmap=colormap, 
                                  linewidth=0, antialiased=True, alpha=0.8)
             
-            # Add a color bar
-            fig.colorbar(surf, ax=ax, shrink=0.5, aspect=5)
+            # Add a color bar and store a reference to it
+            cbar = fig.colorbar(surf, ax=ax, shrink=0.5, aspect=5)
             
             # Set labels
             ax.set_xlabel('X')
@@ -2742,6 +3624,47 @@ Tips
             canvas = FigureCanvasTkAgg(fig, master=main_frame)
             canvas.draw()
             canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+            
+            # Function to update the plot with a new colormap
+            def update_3d_colormap(*args):
+                nonlocal surf, ax, canvas, fig, cbar
+                
+                # Get the selected colormap
+                cmap_name = vis_colormap_var.get()
+                
+                # Map grayscale to gray which is the proper matplotlib name
+                if cmap_name == "grayscale":
+                    cmap_name = "gray"
+                
+                # Store current view angles
+                current_elev = ax.elev
+                current_azim = ax.azim
+                
+                # Remove the old colorbar
+                cbar.remove()
+                
+                # Clear the axis and redraw the surface with the new colormap
+                ax.clear()
+                surf = ax.plot_surface(X, Y, Z, cmap=cmap_name, 
+                                    linewidth=0, antialiased=True, alpha=0.8)
+                
+                # Create a new colorbar
+                cbar = fig.colorbar(surf, ax=ax, shrink=0.5, aspect=5)
+                
+                # Reset labels and title
+                ax.set_xlabel('X')
+                ax.set_ylabel('Y')
+                ax.set_zlabel('Depth')
+                ax.set_title(f'3D Visualization of Depth Image #{image_idx + 1}')
+                
+                # Restore the view angle
+                ax.view_init(elev=current_elev, azim=current_azim)
+                
+                # Redraw the canvas
+                canvas.draw()
+            
+            # Bind the colormap dropdown to update the plot
+            vis_colormap_var.trace_add("write", update_3d_colormap)
             
             # Top view button
             top_view_btn = ttk.Button(buttons_frame, text="Top View", style="ViewBtn.TButton",
@@ -2773,19 +3696,31 @@ Tips
             controls_frame = ttk.Frame(popup)
             controls_frame.pack(fill=tk.X, padx=10, pady=5)
             
+            # Function to clean up when popup is closed
+            def _on_popup_close():
+                try:
+                    # Clean up any bindings when the window is closed
+                    popup.unbind_all("<Key>")
+                except:
+                    pass  # Ignore errors during cleanup
+                popup.destroy()
+            
             # Set initial view angle
             self.set_3d_view(ax, 30, -45, canvas)
             
-            # Bind keyboard navigation
+            # Bind keyboard navigation with cleanup
             def on_key(event):
                 if event.keysym == "Left":
                     self.navigate_3d_visualization(popup, image_idx - 1)
                 elif event.keysym == "Right":
                     self.navigate_3d_visualization(popup, image_idx + 1)
                 elif event.keysym == "Escape":
-                    popup.destroy()
+                    _on_popup_close()
             
             popup.bind("<Key>", on_key)
+            
+            # Set window close handler
+            popup.protocol("WM_DELETE_WINDOW", _on_popup_close)
             
             # Focus the popup window
             popup.focus_set()
@@ -2829,6 +3764,51 @@ Tips
         self.root.bind('<space>', lambda event: self.batch_flip_ud())
         self.root.bind('<Return>', lambda event: self.batch_flip_lr())
         self.root.bind('<Escape>', lambda event: self.stop_auto_advance()) 
+
+    def change_colormap(self, event=None):
+        """
+        Handle colormap change events and update the display.
+        
+        Args:
+            event: The event that triggered this call (default: None)
+        """
+        selected_colormap = self.colormap_var.get()
+        logger.debug_at_level(DEBUG_L1, "ImageViewer", f"Changing colormap to: {selected_colormap}")
+        
+        # Update display with the new colormap
+        self.setup_batch_grid()
+        
+        # Also update the data inspector if it's showing
+        self.update_data_display()
+        
+        # Show status message
+        self.show_status_message(f"Colormap changed to {selected_colormap}")
+        
+        # Return "break" to stop event propagation
+        return "break"
+
+    # First restore the original prev_data_image and next_data_image methods
+    def prev_data_image(self):
+        """Navigate to the previous image in data inspector."""
+        if not self.current_batch or 'depths' not in self.current_batch:
+            return
+        
+        current_idx = self.data_image_idx.get()
+        if current_idx > 0:
+            self.data_image_idx.set(current_idx - 1)
+            self.update_data_display()
+
+    def next_data_image(self):
+        """Navigate to the next image in data inspector."""
+        if not self.current_batch or 'depths' not in self.current_batch:
+            return
+        
+        current_idx = self.data_image_idx.get()
+        max_idx = len(self.current_batch['depths']) - 1
+        
+        if current_idx < max_idx:
+            self.data_image_idx.set(current_idx + 1)
+            self.update_data_display()
 
 def main():
     """Main function to run the application."""
@@ -2874,17 +3854,44 @@ def main():
     
     # Create and run the application
     root = tk.Tk()
-    root.geometry("900x850")  # Larger size to match main app style
-    root.minsize(900, 850)    # Set minimum window size to match initial size
+    
+    # Set initial window size and position
+    window_width = 990
+    window_height = 930  # Increased height
+    root.geometry(f"{window_width}x{window_height}")
+    
+    # Center the window on the screen
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+    center_x = int((screen_width - window_width) / 2)
+    center_y = int((screen_height - window_height) / 2)
+    root.geometry(f"+{center_x}+{center_y}")
+    
+    # Set window title
     root.title("Depth Image Viewer - Disaster Simulation")
     
+    # Set dark theme for the application
+    bg_color = "#242424"  # Dark background
+    fg_color = "#ffffff"  # White text
+    
     # Set default background color for all tk widgets
-    root.configure(bg="#ffffff")
-    root.option_add("*Background", "#ffffff")
-    root.option_add("*Foreground", "#000000")
+    root.configure(bg=bg_color)
+    root.option_add("*Background", bg_color)
+    root.option_add("*Foreground", fg_color)
     
     # Create the app
     app = ImageViewer(root)
+    
+    # Function to update minimum size to match current window size
+    def update_min_size():
+        current_width = root.winfo_width()
+        current_height = root.winfo_height()
+        if current_width > 0 and current_height > 0:  # Ensure we have valid dimensions
+            logger.debug_at_level(DEBUG_L1, "Main", f"Setting minimum size to: {current_width}x{current_height}")
+            root.minsize(current_width, current_height)
+    
+    # Schedule the minsize update after the window has been rendered
+    root.after(100, update_min_size)
     
     # Start the main loop
     root.mainloop()
