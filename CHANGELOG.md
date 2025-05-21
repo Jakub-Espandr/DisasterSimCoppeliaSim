@@ -1,3 +1,21 @@
+## [V.1.4.0B] - HyperDrive Pathway - 2025-05-21
+
+### Added
+**- Enhanced Configuration Management:**
+- Added ability to save configuration files to custom locations with user-defined names
+- Implemented directory browser for configuration file saving and loading
+- Set Config folder as default location for all settings files (same as rc_mapping.json and rc_settings.json)
+- Added full path display in configuration dialogs for better clarity
+
+### Fixed
+**- Keyboard Movement Controls:**
+- Fixed critical issue where movement controls (forward/sideward/up) stopped working after saving settings
+- Ensured movement speed values are properly preserved when switching between tabs or saving configuration
+- Improved decimal precision for movement speed to support values like 0.05
+- Enhanced configuration synchronization between UI and internal settings
+
+---
+
 ## [V.1.4.0] - HyperDrive Pathway - 2025-05-21
 
 ### Added

@@ -81,7 +81,7 @@ class MenuSystem:
 
         # Build and style main window
         self.root = tk.Tk()
-        self.root.title("Disaster Simulation with Drone Navigation v1.4.0 - HyperDrive Pathway")
+        self.root.title("Disaster Simulation with Drone Navigation v1.4.0B - HyperDrive Pathway")
         self.root.geometry("700x900")  # Increased width to ensure all tabs are visible
         self.root.configure(bg="#1a1a1a")  # Dark background
         
@@ -1215,28 +1215,22 @@ class MenuSystem:
             self.config["bird_speed"] = bird_speed
             self.config["keep_fallen_trees"] = keep_fallen_trees
             
-            # Update RandomObjectManager if it exists
-            from Managers.scene_manager import get_scene_manager
-            SM = get_scene_manager()
-            if hasattr(SM, 'random_object_manager') and SM.random_object_manager:
-                self.logger.info("MenuSystem", f"Setting counts: {num_birds} birds (speed: {bird_speed}), {num_trees} trees, spawn: {tree_spawn}s, keep fallen trees: {keep_fallen_trees}")
-                SM.random_object_manager.set_object_counts(
-                    num_birds=int(num_birds), 
-                    num_falling_trees=int(num_trees),
-                    tree_spawn_interval=float(tree_spawn),
-                    bird_speed=float(bird_speed),
-                    keep_fallen_trees=keep_fallen_trees
-                )
-                self.status_label.configure(text=f"Updated: {num_birds} birds (speed: {bird_speed}), {num_trees} trees, spawn: {tree_spawn}s")
-                self.root.after(3000, lambda: self.status_label.configure(text=""))
-                # Update simulation stats
-                self._update_simulation_stats()
-            else:
-                self.status_label.configure(text="No active scene - create scene first")
-                self.root.after(2000, lambda: self.status_label.configure(text=""))
-        except ValueError as e:
-            self.status_label.configure(text="Please enter valid numbers")
+            # Explicitly publish events for movement settings to ensure they're applied
+            EM.publish('config/updated', 'move_step')
+            EM.publish('config/updated', 'rotate_step_deg')
+            
+            # Update status
+            self.status_label.configure(text="All settings applied successfully")
             self.root.after(2000, lambda: self.status_label.configure(text=""))
+            
+            self.logger.info("MenuSystem", f"Applied all settings: move_step={self.config.get('move_step', 0.0):.2f}")
+            
+            return True
+        except Exception as e:
+            self.status_label.configure(text=f"Error applying settings: {e}")
+            self.root.after(2000, lambda: self.status_label.configure(text=""))
+            self.logger.error("MenuSystem", f"Error applying settings: {e}")
+            return False
 
     def _apply_all_config_changes(self):
         """Apply all changes to the configuration."""
@@ -1253,14 +1247,37 @@ class MenuSystem:
             if field['key'] == key:
                 typ = field['type']
                 try:
-                    # Special handling for move_step to round to one decimal place
+                    # Special handling for move_step to round to two decimal places (changed from 1 to 2)
                     if key == "move_step" and typ is float:
-                        self.config[key] = round(float(value), 1)
+                        try:
+                            # Make sure we don't set a zero value if a non-zero value already exists
+                            new_value = float(value)
+                            if new_value == 0.0 and key in self.config and self.config[key] > 0:
+                                self.logger.info("MenuSystem", f"Preserving non-zero value for {key}: {self.config[key]}")
+                            else:
+                                # Round to 2 decimal places to preserve values like 0.05
+                                self.config[key] = round(new_value, 2)
+                                self.logger.info("MenuSystem", f"Set value for {key}: {self.config[key]}")
+                        except ValueError:
+                            # If conversion fails, use the current value or 0.2 as default
+                            self.config[key] = self.config.get(key, 0.2)
+                    elif typ is int:
+                        # Handle conversion of floating-point strings to integers
+                        try:
+                            # First convert to float to handle values like "10.0"
+                            float_value = float(value)
+                            # Then convert to int
+                            self.config[key] = int(float_value)
+                        except ValueError as e:
+                            self.logger.error("MenuSystem", f"Error converting {value} to int: {e}")
+                            # Keep the current value if conversion fails
+                            if key in self.config:
+                                self.logger.info("MenuSystem", f"Keeping current value for {key}: {self.config[key]}")
                     else:
                         self.config[key] = typ(value)
                     EM.publish('config/updated', key)
-                except Exception:
-                    pass
+                except Exception as e:
+                    self.logger.error("MenuSystem", f"Error updating configuration {key}: {e}")
                 break
 
     def _on_config_updated_gui(self, key):
@@ -1851,7 +1868,7 @@ class MenuSystem:
         version_frame.pack(fill="x", pady=10, padx=15)  # Increased padding
         
         version_info = """
-• Version: HyperDrive Pathway v1.4.0
+• Version: HyperDrive Pathway v1.4.0B
 • Build: 21.05.2025
         """
         version_label = ttk.Label(
@@ -1963,7 +1980,8 @@ class MenuSystem:
   - Apply Changes: Save all configuration changes
 
 • Save/Load Settings:
-  - Save Settings: Save your current configuration to a file
+  - Save Settings: Save your current configuration to a file with custom name and location
+                   (Default location is Config folder, same as rc_mapping.json and rc_settings.json)
   - Load Settings: Load previously saved configurations
         """
         config_label = ttk.Label(
@@ -2251,48 +2269,182 @@ class MenuSystem:
                         # Try to convert to float if possible
                         config_to_save[key] = float(var.get())
                     except ValueError:
-                        # If not a number, save as string
+                        # Otherwise keep as string
                         config_to_save[key] = var.get()
             
-            # Ensure all control settings are included
-            control_settings = ['move_step', 'rotate_step_deg', 'single_axis_mode', 
-                              'rc_sensitivity', 'rc_deadzone', 'rc_yaw_sensitivity', 'rc_mappings']
+            # Ensure move_step is not zero if it was previously non-zero
+            if "move_step" in config_to_save and config_to_save["move_step"] == 0.0 and "move_step" in self.config and self.config["move_step"] > 0:
+                config_to_save["move_step"] = self.config["move_step"]
+                self.logger.info("MenuSystem", f"Preserving non-zero move_step in saved config: {config_to_save['move_step']}")
             
-            # Update any RC controller settings from the RC settings object if it exists
-            if hasattr(self, 'rc_settings') and self.rc_settings:
-                # Get RC settings and add them to the configuration
-                if hasattr(self.rc_settings, 'get_settings'):
-                    rc_config = self.rc_settings.get_settings()
-                    for key, value in rc_config.items():
-                        config_to_save[key] = value
+            # Create a dialog to get the custom name and allow directory selection
+            dialog = tk.Toplevel(self.root)
+            dialog.title("Save Configuration")
+            dialog.geometry("600x450")
+            dialog.transient(self.root)
+            dialog.grab_set()  # Modal
             
-            # Add a flag indicating this config includes controls settings
-            config_to_save['includes_rc_settings'] = True
+            # Set minimum size to match current size
+            dialog.minsize(600, 500)
             
-            # Open file dialog to choose save location
-            file_path = filedialog.asksaveasfilename(
-                defaultextension=".json",
-                filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-                title="Save Configuration"
+            # Center on parent
+            dialog.update_idletasks()
+            x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (dialog.winfo_width() // 2)
+            y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (dialog.winfo_height() // 2)
+            dialog.geometry(f"+{x}+{y}")
+            
+            # Content
+            content_frame = ttk.Frame(dialog, padding=35)
+            content_frame.pack(fill=tk.BOTH, expand=True)
+            
+            # Description explaining the purpose
+            ttk.Label(
+                content_frame,
+                text="Save your current configuration settings",
+                font=("Segoe UI", 11, "bold"),
+                wraplength=350,
+                justify="center"
+            ).pack(pady=(0, 10))
+            
+            # Add note about controls being included
+            ttk.Label(
+                content_frame,
+                text="Note: All settings including control mappings will be saved.",
+                font=("Segoe UI", 10, "italic"),
+                wraplength=350,
+                foreground="#666666",
+                justify="center"
+            ).pack(pady=(0, 10))
+            
+            # File name section
+            ttk.Label(
+                content_frame, 
+                text="Enter a name for this configuration:",
+                font=("Segoe UI", 12)
+            ).pack(pady=(0, 10))
+            
+            # Entry for custom name
+            name_var = tk.StringVar(value="settings")
+            name_entry = ttk.Entry(content_frame, textvariable=name_var, width=30, font=("Segoe UI", 12))
+            name_entry.pack(fill=tk.X, pady=10, ipady=5)
+            name_entry.focus_set()  # Set focus to the entry
+            
+            # Directory section
+            ttk.Label(
+                content_frame, 
+                text="Save location:",
+                font=("Segoe UI", 12)
+            ).pack(pady=(10, 5))
+            
+            # Default directory is Config folder
+            default_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Config")
+            dir_var = tk.StringVar(value=default_dir)
+            
+            # Directory display and browse button in a frame
+            dir_frame = ttk.Frame(content_frame)
+            dir_frame.pack(fill=tk.X, pady=5)
+            
+            dir_entry = ttk.Entry(dir_frame, textvariable=dir_var, width=25, font=("Segoe UI", 10))
+            dir_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+            
+            def browse_directory():
+                directory = filedialog.askdirectory(
+                    title="Select Save Directory",
+                    initialdir=dir_var.get()
+                )
+                if directory:
+                    dir_var.set(directory)
+            
+            browse_btn = ttk.Button(dir_frame, text="Browse", command=browse_directory)
+            browse_btn.pack(side=tk.RIGHT)
+            
+            # Help text
+            ttk.Label(
+                content_frame,
+                text="Default location is the Config folder, same as rc_mapping.json and rc_settings.json",
+                font=("Segoe UI", 10),
+                foreground="#666666",
+                wraplength=350,
+                justify="center"
+            ).pack(pady=(5, 20))
+            
+            # Buttons
+            button_frame = ttk.Frame(content_frame)
+            button_frame.pack(fill=tk.X, pady=10)
+            
+            cancel_btn = ttk.Button(
+                button_frame, 
+                text="Cancel", 
+                command=dialog.destroy
             )
+            cancel_btn.pack(side=tk.LEFT, padx=10, expand=True, fill=tk.X, ipady=4)
             
-            if file_path:
-                with open(file_path, 'w') as f:
-                    json.dump(config_to_save, f, indent=4)
-                self.status_label.configure(text="All settings (including controls) saved successfully!")
+            def save_config_with_name():
+                filename = name_var.get()
+                directory = dir_var.get()
+                
+                # Make sure the filename is valid by removing special characters
+                filename = ''.join(c for c in filename if c.isalnum() or c in '._- ')
+                
+                # Check if the name already has a .json extension
+                if not filename.lower().endswith('.json'):
+                    filename = f"{filename}.json"
+                
+                # Ensure directory exists
+                os.makedirs(directory, exist_ok=True)
+                
+                # Full path to save file
+                filepath = os.path.join(directory, filename)
+                
+                # Format the JSON with indentation for readability
+                config_json = json.dumps(config_to_save, indent=4)
+                
+                # Save to file
+                with open(filepath, "w") as f:
+                    f.write(config_json)
+                
+                # Explicitly publish events to ensure movement settings are applied
+                EM.publish('config/updated', 'move_step')
+                EM.publish('config/updated', 'rotate_step_deg')
+                
+                self.logger.info("MenuSystem", f"Configuration saved to {filepath} with move_step={config_to_save.get('move_step', 0.0):.2f}")
+                
+                # Update status
+                self.status_label.configure(text=f"Configuration saved to {os.path.basename(filepath)}")
                 self.root.after(2000, lambda: self.status_label.configure(text=""))
+                
+                # Close dialog
+                dialog.destroy()
+            
+            save_btn = ttk.Button(
+                button_frame, 
+                text="Save", 
+                style="Apply.TButton",
+                command=save_config_with_name
+            )
+            save_btn.pack(side=tk.RIGHT, padx=10, expand=True, fill=tk.X, ipady=4)
+            
+            # Bind Enter key to save button
+            dialog.bind("<Return>", lambda event: save_btn.invoke())
+            
+            return True
         except Exception as e:
             self.logger.error("MenuSystem", f"Error saving configuration: {e}")
-            self.status_label.configure(text=f"Error saving configuration: {str(e)}")
+            self.status_label.configure(text=f"Error saving configuration: {e}")
             self.root.after(2000, lambda: self.status_label.configure(text=""))
+            return False
 
     def _load_config(self):
         """Load configuration from a JSON file"""
         try:
+            # Get default Config directory path
+            default_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Config")
+            
             # Open file dialog to choose file to load
             file_path = filedialog.askopenfilename(
                 filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-                title="Load Configuration"
+                title="Load Configuration",
+                initialdir=default_dir
             )
             
             if file_path:
@@ -2303,7 +2455,7 @@ class MenuSystem:
                 # Show confirmation dialog
                 dialog = tk.Toplevel(self.root)
                 dialog.title("Load Configuration")
-                dialog.geometry("450x300")
+                dialog.geometry("600x350")
                 dialog.transient(self.root)
                 dialog.grab_set()  # Modal
                 
@@ -2325,6 +2477,16 @@ class MenuSystem:
                     wraplength=350,
                     justify="center"
                 ).pack(pady=(0, 20))
+                
+                # Add file path info
+                ttk.Label(
+                    content_frame,
+                    text=f"Path: {file_path}",
+                    font=("Segoe UI", 9),
+                    wraplength=500,
+                    foreground="#666666",
+                    justify="center"
+                ).pack(pady=(0, 10))
                 
                 # Add note about controls being included
                 ttk.Label(
@@ -2679,70 +2841,42 @@ class MenuSystem:
             self.root.after(3000, lambda: self.status_label.configure(text=""))
     
     def _apply_loaded_config(self, dialog, loaded_config, file_path):
-        """Actually apply the loaded configuration after preview confirmation"""
-        dialog.destroy()
-        
+        """Apply loaded configuration from file"""
         try:
-            # Update all configuration variables
+            # Update our configuration with the loaded values
+            self.config.update(loaded_config)
+            
+            # Update UI variables with loaded values
             for key, value in loaded_config.items():
-                # Update the config dictionary directly
-                self.config[key] = value
-                
-                # Update UI elements if they exist
                 if key in self._config_vars:
-                    var = self._config_vars[key]
-                    if isinstance(var, tk.BooleanVar):
-                        var.set(bool(value))
-                    else:
-                        var.set(str(value))
+                    self._config_vars[key].set(value)
             
-            # Explicitly convert important numeric values to proper types
-            type_conversions = {
-                # Static objects
-                "num_trees": int,
-                "num_rocks": int,
-                "num_bushes": int,
-                "num_foliage": int,
-                # Dynamic objects
-                "num_birds": int, 
-                "num_falling_trees": int,
-                "tree_spawn_interval": float,
-                "bird_speed": float,
-                # Other numeric values
-                "area_size": float,
-                "move_step": float,
-                "rotate_step_deg": float,
-                "batch_size": int
-            }
+            # Ensure move_step is not zero if it was previously non-zero
+            if "move_step" in loaded_config and loaded_config["move_step"] == 0.0 and hasattr(self, "move_step_var"):
+                # Check if we have a previous non-zero value
+                previous_value = self.move_step_var.get()
+                if previous_value > 0:
+                    self.config["move_step"] = previous_value
+                    self.move_step_var.set(previous_value)
+                    self.logger.info("MenuSystem", f"Preserving non-zero move_step value: {previous_value}")
             
-            for key, conversion_func in type_conversions.items():
-                if key in self.config:
-                    try:
-                        self.config[key] = conversion_func(self.config[key])
-                    except (ValueError, TypeError):
-                        # If conversion fails, log error and use default
-                        self.logger.warning("MenuSystem", f"Error converting {key} value '{self.config[key]}' to {conversion_func.__name__}")
-                        if conversion_func == int:
-                            self.config[key] = 0  # Default for count values
-                        else:
-                            self.config[key] = 0.0  # Default for float values
+            # Explicitly publish events to ensure movement settings are applied
+            EM.publish('config/updated', 'move_step')
+            EM.publish('config/updated', 'rotate_step_deg')
             
-            # Apply all the changes at once (this handles dynamic objects only)
-            self._apply_all_changes()
+            # Update status
+            self.status_label.configure(text=f"Configuration loaded from {os.path.basename(file_path)}")
+            self.root.after(2000, lambda: self.status_label.configure(text=""))
             
-            # Ensure RC controller settings are updated if they exist
-            for key in ['rc_sensitivity', 'rc_deadzone', 'rc_yaw_sensitivity', 'rc_mappings', 'single_axis_mode']:
-                if key in loaded_config:
-                    EM.publish('config/updated', key)
+            self.logger.info("MenuSystem", f"Configuration loaded with move_step={self.config.get('move_step', 0.0):.2f}")
             
-            self.status_label.configure(text=f"Configuration loaded successfully from {os.path.basename(file_path)}!")
-            self.logger.info("MenuSystem", f"Loaded config with: {self.config['num_trees']} trees, {self.config['num_rocks']} rocks, "
-                          f"{self.config['num_bushes']} bushes, {self.config['num_foliage']} foliage, "
-                          f"{self.config['num_birds']} birds, {self.config['num_falling_trees']} falling trees")
-            self.root.after(3000, lambda: self.status_label.configure(text=""))
+            # Close the dialog
+            dialog.destroy()
         except Exception as e:
-            self.status_label.configure(text=f"Error applying configuration: {str(e)}")
-            self.root.after(3000, lambda: self.status_label.configure(text=""))
+            self.logger.error("MenuSystem", f"Error applying loaded configuration: {e}")
+            self.status_label.configure(text=f"Error applying loaded configuration: {e}")
+            self.root.after(2000, lambda: self.status_label.configure(text=""))
+            dialog.destroy()
 
     def _update_performance_metrics(self):
         """Update performance metrics in the UI"""
@@ -4084,6 +4218,7 @@ For example:
         """Update the movement speed value label"""
         try:
             val = float(value)
+            # Changed to 2 decimal places for more precise display of values like 0.05
             self.move_step_label.config(text=f"{val:.2f}")
         except:
             pass
@@ -4100,15 +4235,25 @@ For example:
         """Apply keyboard control settings"""
         try:
             # Update config with current UI values, rounding to appropriate decimals
-            self.config["move_step"] = round(self.move_step_var.get(), 2)
-            self.config["rotate_step_deg"] = round(self.rotate_step_var.get(), 1)
+            # Changed rounding from 1 to 2 decimal places to preserve values like 0.05
+            move_step_value = round(self.move_step_var.get(), 2)
+            rotate_step_value = round(self.rotate_step_var.get(), 1)
+            
+            # Preserve previous non-zero move_step value if new value is zero
+            if move_step_value == 0.0 and "move_step" in self.config and self.config["move_step"] > 0:
+                self.logger.info("MenuSystem", f"Preserving non-zero move_step value: {self.config['move_step']}")
+            else:
+                self.config["move_step"] = move_step_value
+                self.logger.info("MenuSystem", f"Set move_step value: {move_step_value}")
+                
+            self.config["rotate_step_deg"] = rotate_step_value
             
             # Publish config update events
             EM.publish('config/updated', 'move_step')
             EM.publish('config/updated', 'rotate_step_deg')
             
-            # Show confirmation via status label
-            self.status_label.configure(text="Keyboard settings updated")
+            # Show confirmation via status label - updated to 2 decimal places
+            self.status_label.configure(text=f"Keyboard settings updated: move_step={self.config['move_step']:.2f}")
             self.root.after(2000, lambda: self.status_label.configure(text=""))
             
             self.logger.info("MenuSystem", f"Updated keyboard settings: move_step={self.config['move_step']}, rotate_step_deg={self.config['rotate_step_deg']}")

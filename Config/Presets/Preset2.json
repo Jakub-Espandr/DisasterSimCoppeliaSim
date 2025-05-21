@@ -1,0 +1,52 @@
+{
+    "area_size": 20.0,
+    "num_trees": 150.0,
+    "fraction_standing": 0.85,
+    "num_rocks": 80.0,
+    "num_bushes": 50.0,
+    "num_foliage": 50.0,
+    "num_birds": 15.0,
+    "num_falling_trees": 8.0,
+    "tree_spawn_interval": 30.0,
+    "keep_fallen_trees": true,
+    "bird_speed": 0.5,
+    "clear_zone_center": [
+        0,
+        0
+    ],
+    "clear_zone_radius": 0.5,
+    "verbose": true,
+    "move_step": 0.04,
+    "rotate_step_deg": 9.5,
+    "drone_spawn_margin": 1.0,
+    "optimized_creation": true,
+    "include_rocks": true,
+    "include_standing_trees": true,
+    "include_fallen_trees": true,
+    "include_bushes": true,
+    "include_foliage": true,
+    "batch_size": 10.0,
+    "rc_sensitivity": 0.4,
+    "rc_deadzone": 0.15,
+    "rc_yaw_sensitivity": 0.16,
+    "rc_mappings": {
+        "throttle": {
+            "axis": 2,
+            "invert": false
+        },
+        "yaw": {
+            "axis": 3,
+            "invert": true
+        },
+        "pitch": {
+            "axis": 1,
+            "invert": false
+        },
+        "roll": {
+            "axis": 0,
+            "invert": false
+        }
+    },
+    "enable_performance_monitoring": false,
+    "single_axis_mode": true
+}
