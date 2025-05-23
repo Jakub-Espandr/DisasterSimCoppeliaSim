@@ -1,4 +1,16 @@
 # Changelog for View_Depth_Image.py
+## [0.4.1] - 2025-05-23
+### Added
+- Dark theme implementation across the entire UI
+- Optimized image loading system in Data Inspector
+
+### Improved
+- UI consistency with dark theme color scheme
+- Performance optimization for image rendering in Data Inspector
+- Memory efficiency for handling image data
+
+--
+
 ## [0.4.0] - 2025-05-21
 ### Added
 - New Data Inspector tab for viewing detailed information about depth images, including:

@@ -71,7 +71,7 @@ class ImageViewer:
         """
         logger.info("ImageViewer", "Initializing depth image viewer application")
         self.root = root
-        self.root.title("Depth Image Viewer v.0.4.0")
+        self.root.title("Depth Image Viewer v.0.4.1")
         
         # Set app icon for Windows and macOS
         self.set_app_icon()
@@ -165,7 +165,7 @@ class ImageViewer:
         
     def configure_app_style(self):
         """Configure the application style to match the main app."""
-        # Dark theme with white text
+        # Force dark theme with white text
         self.bg_color = "#242424"  # Dark background
         self.fg_color = "#ffffff"  # White text
         self.accent_color = "#0078d7"  # Modern blue accent
@@ -176,6 +176,16 @@ class ImageViewer:
         self.border_color = "#444444"  # Medium gray for borders
         self.button_bg = "#333333"  # Button background
         self.input_bg = "#333333"  # Input background
+        
+        # Force dark theme for the root window and all child widgets
+        self.root.tk_setPalette(
+            background=self.bg_color,
+            foreground=self.fg_color,
+            activeBackground=self.hover_color,
+            activeForeground=self.fg_color,
+            selectBackground=self.accent_color,
+            selectForeground=self.fg_color
+        )
         
         # Configure the root window
         self.root.configure(bg=self.bg_color)
@@ -189,6 +199,7 @@ class ImageViewer:
         self.root.option_add("*Text.Foreground", self.fg_color)
         self.root.option_add("*Canvas.Background", self.bg_color)
         self.root.option_add("*Entry.Background", self.input_bg)
+        self.root.option_add("*Entry.Foreground", self.fg_color)
         self.root.option_add("*Menu.Background", self.bg_color)
         self.root.option_add("*Menu.Foreground", self.fg_color)
         self.root.option_add("*Menu.selectBackground", self.accent_color)
@@ -196,6 +207,7 @@ class ImageViewer:
         
         # Configure ttk styles
         style = ttk.Style()
+        style.theme_use('clam')  # Use clam theme as base for better dark theme support
         
         # Configure frame styles
         style.configure("TFrame", background=self.bg_color)
@@ -214,8 +226,28 @@ class ImageViewer:
                       font=("Helvetica", 10))
         
         style.map("TButton",
-                background=[("active", self.hover_color)],
-                foreground=[("active", self.accent_color)])
+                background=[("active", self.hover_color), ("pressed", self.hover_color)],
+                foreground=[("active", self.accent_color), ("pressed", self.accent_color)])
+        
+        # Configure flip button styles
+        style.configure("Flip.TButton",
+                      background=self.button_bg,
+                      foreground=self.fg_color,
+                      font=("Helvetica", 10))
+        
+        style.map("Flip.TButton",
+                background=[("active", self.hover_color), ("pressed", self.hover_color), ("selected", self.accent_color)],
+                foreground=[("active", self.accent_color), ("pressed", self.accent_color), ("selected", self.fg_color)])
+        
+        # Configure success button style
+        style.configure("Success.TButton",
+                      background=self.success_color,
+                      foreground=self.fg_color,
+                      font=("Helvetica", 10, "bold"))
+        
+        style.map("Success.TButton",
+                background=[("active", self.success_color), ("pressed", "#27ae60")],
+                foreground=[("active", self.fg_color), ("pressed", self.fg_color)])
         
         # Configure entry styles
         style.configure("TEntry",
@@ -227,12 +259,14 @@ class ImageViewer:
         style.configure("TCombobox", 
                       fieldbackground=self.input_bg,
                       foreground=self.fg_color,
-                      background=self.bg_color)
+                      background=self.bg_color,
+                      arrowcolor=self.fg_color)  # Make dropdown arrow visible
         
         style.map("TCombobox",
                   fieldbackground=[("readonly", self.input_bg)],
                   background=[("readonly", self.bg_color)],
-                  foreground=[("readonly", self.fg_color)])
+                  foreground=[("readonly", self.fg_color)],
+                  arrowcolor=[("readonly", self.fg_color)])  # Keep arrow visible in readonly state
         
         # Configure the notebook style (used for tabs)
         style.configure("TNotebook", background=self.bg_color, borderwidth=0)
@@ -250,7 +284,8 @@ class ImageViewer:
         style.configure("TScrollbar", 
                       background=self.bg_color, 
                       troughcolor=self.hover_color,
-                      arrowcolor=self.fg_color)
+                      arrowcolor=self.fg_color,
+                      borderwidth=0)
                       
         # Apply a 3D visualization style for better visibility on dark background
         matplotlib.rc('axes', facecolor=self.bg_color)
@@ -262,6 +297,26 @@ class ImageViewer:
         matplotlib.rc('text', color=self.fg_color)
         matplotlib.rc('lines', color=self.accent_color)
         matplotlib.rc('grid', color=self.hover_color)
+        
+        # Configure checkbutton styles with explicit colors
+        style.configure("TCheckbutton",
+                      background=self.bg_color,
+                      foreground=self.fg_color)
+        style.map("TCheckbutton",
+                 background=[("active", self.bg_color)],
+                 foreground=[("active", self.accent_color)],
+                 indicatorcolor=[("selected", self.accent_color), ("!selected", self.hover_color)],
+                 indicatorbackground=[("selected", self.hover_color), ("!selected", self.input_bg)])
+        
+        # Configure radio button styles
+        style.configure("TRadiobutton",
+                      background=self.bg_color,
+                      foreground=self.fg_color)
+        style.map("TRadiobutton",
+                background=[("active", self.bg_color)],
+                foreground=[("active", self.accent_color)],
+                indicatorcolor=[("selected", self.accent_color), ("!selected", self.hover_color)],
+                indicatorbackground=[("selected", self.hover_color), ("!selected", self.input_bg)])
     
     #--- Initialization Methods ---#
     
@@ -336,6 +391,9 @@ class ImageViewer:
         help_frame = ttk.Frame(nb)
         self.setup_help_tab(help_frame)
         nb.add(help_frame, text="Help")
+        
+        # Bind tab change event
+        nb.bind('<<NotebookTabChanged>>', self._on_tab_changed)
         
         # Create a status bar at the bottom
         self.create_status_bar(main_frame)
@@ -1282,22 +1340,23 @@ class ImageViewer:
         flip_type_label = ttk.Label(options_content, text="Flip Type:")
         flip_type_label.pack(side=tk.LEFT, padx=(0, 10))
         
+        # Create flip type radio buttons
         self.flip_type_var = tk.StringVar(value="fliplr")
         
-        # Add trace to update preview when flip type changes, but with auto-preview off by default
-        # The trace_add is now only added when preview is enabled
+        flip_none_rb = ttk.Radiobutton(options_content, text="None", 
+                                    variable=self.flip_type_var, value="none",
+                                    command=lambda: self.update_batch_preview("none"))
+        flip_none_rb.pack(side=tk.LEFT, padx=5)
         
-        flip_lr_radio = ttk.Radiobutton(options_content, text="Left-Right ↔️", 
-                                     variable=self.flip_type_var, value="fliplr")
-        flip_lr_radio.pack(side=tk.LEFT, padx=10)
+        flip_lr_rb = ttk.Radiobutton(options_content, text="Left-Right", 
+                                  variable=self.flip_type_var, value="fliplr",
+                                  command=lambda: self.update_batch_preview("fliplr"))
+        flip_lr_rb.pack(side=tk.LEFT, padx=5)
         
-        flip_ud_radio = ttk.Radiobutton(options_content, text="Up-Down ↕️", 
-                                     variable=self.flip_type_var, value="flipud")
-        flip_ud_radio.pack(side=tk.LEFT, padx=10)
-        
-        flip_none_radio = ttk.Radiobutton(options_content, text="No Flip (Copy Only) 📄", 
-                                      variable=self.flip_type_var, value="none")
-        flip_none_radio.pack(side=tk.LEFT, padx=10)
+        flip_ud_rb = ttk.Radiobutton(options_content, text="Up-Down", 
+                                  variable=self.flip_type_var, value="flipud",
+                                  command=lambda: self.update_batch_preview("flipud"))
+        flip_ud_rb.pack(side=tk.LEFT, padx=5)
         
         # Preview options
         preview_frame = ttk.Frame(options_content)
@@ -1318,15 +1377,18 @@ class ImageViewer:
         quick_flip_label.pack(side=tk.LEFT, padx=(0, 10))
         
         quick_fliplr_btn = ttk.Button(quick_flip_frame, text="Left-Right ↔️", 
-                                   command=lambda: self.quick_flip_preview("fliplr"))
+                                   command=lambda: self.quick_flip_preview("fliplr"),
+                                   style="Flip.TButton")
         quick_fliplr_btn.pack(side=tk.LEFT, padx=5)
         
         quick_flipud_btn = ttk.Button(quick_flip_frame, text="Up-Down ↕️", 
-                                   command=lambda: self.quick_flip_preview("flipud"))
+                                   command=lambda: self.quick_flip_preview("flipud"),
+                                   style="Flip.TButton")
         quick_flipud_btn.pack(side=tk.LEFT, padx=5)
         
         quick_reset_btn = ttk.Button(quick_flip_frame, text="Reset Preview 🧹", 
-                                  command=lambda: self.quick_flip_preview("none"))
+                                  command=lambda: self.quick_flip_preview("none"),
+                                  style="Flip.TButton")
         quick_reset_btn.pack(side=tk.LEFT, padx=5)
         
         # Execute button
@@ -1953,7 +2015,7 @@ Tips
             
             # Update the window title with the current file
             filename = os.path.basename(file_path)
-            self.root.title(f"Depth Image Viewer v0.4.0 - {filename}")
+            self.root.title(f"Depth Image Viewer v0.4.1 - {filename}")
             
             # Load the NPZ file
             try:
@@ -2014,8 +2076,8 @@ Tips
             # Reset to first image
             self.data_image_idx.set(0)
             
-            # Update display
-            self.update_data_display()
+            # Force immediate display update
+            self.update_data_display(0)
             
         except Exception as e:
             logger.error("ImageViewer", f"Error updating data inspector: {str(e)}")
@@ -3810,6 +3872,16 @@ Tips
             self.data_image_idx.set(current_idx + 1)
             self.update_data_display()
 
+    def _on_tab_changed(self, event):
+        """Handle tab selection changes."""
+        tab = event.widget.select()
+        tab_name = event.widget.tab(tab, "text")
+        
+        if tab_name == "Data Inspector":
+            # Force an immediate update of the data display
+            if hasattr(self, 'data_image_idx'):
+                self.root.after(100, lambda: self.update_data_display(self.data_image_idx.get()))
+        
 def main():
     """Main function to run the application."""
     # Default configuration for logger
