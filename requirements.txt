@@ -2,6 +2,7 @@
 numpy>=1.19.0
 psutil>=5.9.0
 coppeliasim-zmqremoteapi-client>=1.0.0
+pygame>=2.1.0
 
 # Optional but recommended for full functionality
 opencv-python>=4.5.0  # For image processing
