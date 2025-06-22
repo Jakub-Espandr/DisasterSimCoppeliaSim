@@ -19,7 +19,7 @@ The system supports manual control, dataset collection for AI training, and dyna
 
 ```bash
 # Clone the repository
-gh repo clone Jakub-Espandr/disaster-sim-coppeliasim
+gh repo clone Jakub-Espandr/DisasterSimCoppeliaSim
 # Move to directory
 cd disaster-sim-coppeliasim
 # Install dependencies
@@ -134,4 +134,6 @@ Comprehensive UI with radar indicators, elevation display, and real-time vector 
 
 ## License
 
-NCPL License
+This project is licensed under the **Non-Commercial Public License (NCPL v1.0)**  
+
+See the [LICENSE](https://github.com/Jakub-Espandr/DisasterSimCoppeliaSim/raw/main/LICENSE) file for full terms.
