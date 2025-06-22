@@ -15,22 +15,6 @@ The system supports manual control, dataset collection for AI training, and dyna
 
 ---
 
-## Quick Start
-
-```bash
-# Clone the repository
-gh repo clone Jakub-Espandr/DisasterSimCoppeliaSim
-# Move to directory
-cd disaster-sim-coppeliasim
-# Install dependencies
-pip install -r requirements.txt
-# Launch CoppeliaSim with your quadcopter scene
-# Then run:
-python main.py
-```
-
----
-
 ## Main Features
 
 - 🛩️ **Drone control** (WASD + QE keyboard controls for movement and rotation)
@@ -41,6 +25,26 @@ python main.py
 - 🎮 **Interactive control menus** for creating, clearing, restarting scenes
 - 📊 **Status tab with victim detection visualization** including direction indicator, elevation, distance, and signal strength
 - 🧪 **Tool Suite:** GUI tools for viewing and preprocessing collected depth datasets, and for generating application icons
+
+---
+
+## Quick Start
+
+```bash
+# Clone the repository
+gh repo clone Jakub-Espandr/DisasterSimCoppeliaSim
+
+# Move to directory
+cd DisasterSimCoppeliaSim
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Launch CoppeliaSim with your quadcopter scene
+# Then run the main script:
+python main.py
+
+```
 
 ---
 
